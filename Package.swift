@@ -1,4 +1,4 @@
-// swift-tools-version:5.10
+// swift-tools-version:6.0
 import PackageDescription
 
 // No dependencies on purpose: everything is Apple frameworks (IOKit, AVFoundation,
@@ -8,5 +8,6 @@ let package = Package(
     platforms: [.macOS(.v15)],
     targets: [
         .executableTarget(name: "Soundboard", path: "Sources/Soundboard")
-    ]
+    ],
+    swiftLanguageModes: [.v5]
 )
