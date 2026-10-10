@@ -81,6 +81,29 @@ final class SettingsModel: ObservableObject {
         selected = b
     }
 
+    func firstEmptySlot(onPage target: Int) -> Int? {
+        guard config.pages.indices.contains(target) else { return 0 }
+        return config.pages[target].firstIndex { $0 == nil }
+    }
+
+    /// Moves a key from the current page into the first empty slot of `target`
+    /// (a new page when `target` is past the end).
+    func move(_ index: Int, toPage target: Int) {
+        guard let button = button(index), target != page, let slot = firstEmptySlot(onPage: target) else {
+            NSSound.beep()
+            return
+        }
+        let from = page
+        let keyCount = self.keyCount
+        update { config in
+            if target >= config.pages.count { config.pages.append(Array(repeating: nil, count: keyCount)) }
+            config.pages[target][slot] = button
+            config.pages[from][index] = nil
+        }
+        page = min(target, config.pages.count - 1)
+        selected = slot
+    }
+
     func addPage() {
         update { $0.pages.append(Array(repeating: nil, count: keyCount)) }
         page = config.pages.count - 1
@@ -200,17 +223,33 @@ private struct PageBar: View {
         HStack {
             Button { model.page = max(0, model.page - 1) } label: { Image(systemName: "chevron.left") }
                 .disabled(model.page == 0)
+                .onDrop(of: [.plainText], isTargeted: nil) { moveDropped($0, by: -1) }
             Text("Page \(model.page + 1) of \(model.config.pages.count)")
                 .font(.headline).monospacedDigit().frame(minWidth: 110)
             Button { model.page = min(model.config.pages.count - 1, model.page + 1) } label: { Image(systemName: "chevron.right") }
                 .disabled(model.page >= model.config.pages.count - 1)
+                .onDrop(of: [.plainText], isTargeted: nil) { moveDropped($0, by: 1) }
             Spacer()
             Button("Add Page", systemImage: "plus") { model.addPage() }
             Button("Delete Page", systemImage: "trash") { model.deletePage() }
                 .disabled(model.config.pages.count <= 1)
         }
         .labelStyle(.iconOnly)
-        .help("The touch buttons under the Neo's screen switch pages")
+        .help("The touch buttons under the Neo's screen switch pages. Drop a key on an arrow to move it there.")
+    }
+
+    /// A key dragged onto an arrow moves to the previous/next page (next past the end makes a new page).
+    private func moveDropped(_ providers: [NSItemProvider], by delta: Int) -> Bool {
+        guard let provider = providers.first else { return false }
+        _ = provider.loadObject(ofClass: NSString.self) { text, _ in
+            guard let text = text as? String, text.hasPrefix("soundboard-key:"),
+                  let index = Int(text.dropFirst("soundboard-key:".count)) else { return }
+            DispatchQueue.main.async {
+                let target = model.page + delta
+                if target >= 0 { model.move(index, toPage: target) }
+            }
+        }
+        return true
     }
 }
 
@@ -231,7 +270,7 @@ private struct KeyGrid: View {
         }
         .padding(14)
         .background(RoundedRectangle(cornerRadius: 18).fill(Color.black.opacity(0.85)))
-        Text("Click a key to edit it. Drop a sound, image or video on a key, or drag keys to rearrange them.")
+        Text("Click a key to edit it. Drop a sound, image or video on a key. Drag keys to swap them, or onto the page arrows to move them to another page.")
             .font(.caption).foregroundStyle(.secondary)
     }
 }
@@ -389,7 +428,22 @@ private struct KeyInspector: View {
 
             if button != nil {
                 Section {
-                    Button("Clear Key", role: .destructive) { model.setButton(index, nil) }
+                    HStack {
+                        Menu("Move to Page") {
+                            ForEach(model.config.pages.indices.filter { $0 != model.page }, id: \.self) { target in
+                                let full = model.firstEmptySlot(onPage: target) == nil
+                                Button(full ? "Page \(target + 1) (full)" : "Page \(target + 1)") {
+                                    model.move(index, toPage: target)
+                                }
+                                .disabled(full)
+                            }
+                            Divider()
+                            Button("New Page") { model.move(index, toPage: model.config.pages.count) }
+                        }
+                        .fixedSize()
+                        Spacer()
+                        Button("Clear Key", role: .destructive) { model.setButton(index, nil) }
+                    }
                 }
             }
         }
