@@ -57,7 +57,7 @@ sandbox container: `Paths.home` uses `getpwuid`, and the entitlements grant a
 | --- | --- |
 | `Config.swift` | `Config` (v2), `SoundEntry` (library), `ButtonConfig` (key), `KeyFace`, v1→v2 `upgrade`, `Paths` |
 | `AppController.swift` | App delegate: config load/save/apply, file watchers, deck events → actions, menu bar, status |
-| `AudioRouter.swift` | The three AVAudioEngines, voice pool, play/stop/overlay, bleep (censor), async device setup |
+| `AudioRouter.swift` | The three AVAudioEngines (started on demand), voice pool, play/stop/overlay, bleep (censor), async device setup |
 | `RingBuffer.swift` | Lock-free SPSC mic buffer with drift control (target 20 ms, resync at 80 ms) |
 | `AudioDevices.swift` | CoreAudio device enumeration (timeout-guarded), change listener with snapshot dedupe |
 | `AudioListeners.swift` | Whether another app reads input from the output device (CoreAudio process objects) |
@@ -109,19 +109,26 @@ sandbox container: `Paths.home` uses `getpwuid`, and the entitlements grant a
 - **Setup runs in two stages** on `setupQueue`: `buildLocal` (mic + monitor) is installed first,
   then `buildBroadcast` (the output device). A hung BlackHole therefore only blocks the output;
   the input meter, monitor and input test still work. `install` merges each stage.
-- **The input opens on demand.** The mic engine is built but not started; `InputDemand` starts it
-  while another app reads from the output device (`AudioListeners`) or the Audio tab is open, and
-  pauses it 3 s after the last reason goes away (noise removal is bypassed while paused). So the
-  mic, macOS's mic indicator and the isolation model only run during calls. `AudioListeners` uses
-  the macOS 14 process objects (`kAudioHardwarePropertyProcessObjectList`, then per process
-  `IsRunningInput` + input-scope `Devices`), with property listeners, no polling; it works from the
-  sandbox. Verified with Zoom: Test Mic shows `us.zoom.xos` reading BlackHole, and it drops off
-  when the test stops. A process's device list includes every device it has open in each
-  direction the device supports (Zoom's output list includes BlackHole too), so an app that only
-  plays to BlackHole while recording another mic also counts; that errs toward leaving the mic on.
-  Soundboard excludes its own pid. If the query fails it reports "listening", so calls never lose
-  the mic. A paused mic engine isn't running on purpose, so `needsRebuild` only treats "stopped"
-  as a failure while `status.micLive`.
+- **Engines run on demand.** All three engines are built but not started. `Demand` decides
+  which run: `.listener` (another app reads from the output device; see `AudioListeners`) and
+  `.audioTab` run everything; `.playback` (a sound played in the last 30 s) runs only the monitor.
+  Starting is immediate; stopping waits 3 s after the last reason goes away. With no demand,
+  nothing is open: no mic indicator, no isolation model, ~0% CPU, and no coreaudiod
+  `PreventUserIdleSystemSleep` assertions, which an open output device holds and which stop the
+  Mac from idle-sleeping (check with `pmset -g assertions`). A key pressed while the monitor is
+  stopped claims its voice and waits in `pending` until the engine runs (measured ~90 ms to built-in
+  headphones). Completions are scheduled on the first running bus, now the monitor, which can't
+  stop while a sound plays. Noise removal is bypassed while the mic is paused. Live flags
+  (`status.micLive` …) are only set once `start()` succeeded, and cleared before `stop()`, so
+  `needsRebuild` treats "stopped" as a failure only while an engine is meant to run.
+- **`AudioListeners`** uses the macOS 14 process objects (`kAudioHardwarePropertyProcessObjectList`,
+  then per process `IsRunningInput` + input-scope `Devices`), with property listeners, no polling;
+  it works from the sandbox. Verified with Zoom: Test Mic shows `us.zoom.xos` reading BlackHole
+  (everything running ~100 ms later); it drops off when the test stops, and stays while muted. A
+  process's device list includes every device it has open in each direction the device supports
+  (Zoom's output list includes BlackHole too), so an app that only plays to BlackHole while
+  recording another mic also counts; that errs toward running. Soundboard excludes its own pid.
+  If the query fails it reports "listening", so calls never lose the mic.
 - **Meters and the input test** use engine taps (`TapState`, lock-based; taps aren't real-time):
   raw input on the mic engine's input node (works without the output), processed on the
   isolation unit, mix on the broadcast mixer. The test records raw input and replays it on the
@@ -225,5 +232,11 @@ and thumbnail on reset.
   and views need an explicit background.
 - **Don't make audible test noise** on the user's Mac: preview tests used a silent file
   served by `python3 -m http.server` on 127.0.0.1. Test videos were Big Buck Bunny (open-licensed, Blender).
+- **Live SwiftUI views must not invalidate the window.** The Audio tab once used ~24% of a core on
+  the main thread just for its meters. Three things fixed it: each meter is its own `LevelMeter`
+  observed only by its `MeterView` (and it publishes only when what's drawn changes), the meter is
+  drawn in a `Canvas` so a new level doesn't change any layout, and the window's
+  `NSHostingController` has `sizingOptions = []` (otherwise every update re-measures the whole
+  window). Profile with `sample <pid> 5` and look at the main thread.
 - **`rm` on a shell variable gets blocked** by a safety check; use `"${VAR:?}"`.
 - **Commits:** small and incremental, **no Co-Authored-By trailer** (user preference).

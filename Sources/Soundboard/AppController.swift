@@ -472,13 +472,14 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
         if let device = status.connecting {
             info("⏳ Opening \(device)… (if this stays, the audio driver is stuck — restart your Mac)")
         } else {
-            info(status.output.map { "✓ Output: \($0)" } ?? "✗ \(status.outputProblem ?? "No output")")
+            info(status.output.map { "✓ Output: \($0)\(status.outputLive ? "" : " (standby until an app listens)")" }
+                ?? "✗ \(status.outputProblem ?? "No output")")
         }
         if config.micPassthrough, status.mic != nil || status.micProblem != nil {
             info(status.mic.map { "✓ Input: \($0)\(status.micLive ? "" : " (standby until an app listens)")" }
                 ?? "✗ \(status.micProblem ?? "Input unavailable")")
         }
-        if let monitor = status.monitor { info("✓ Monitor: \(monitor)") }
+        if let monitor = status.monitor { info("✓ Monitor: \(monitor)\(status.monitorLive ? "" : " (opens when a sound plays)")") }
         if let configError { info("✗ \(configError)") }
         let broken = config.library.filter { assets.isBroken($0.file) }.count
         if broken > 0 { info("⚠︎ \(broken) sound file\(broken == 1 ? "" : "s") couldn't be loaded") }
@@ -532,7 +533,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
         let s = router.status
         return AppStatus(deck: decks.deck?.model.name, deckBusy: decks.busyDevice != nil,
                          output: s.output, outputProblem: s.outputProblem, connecting: s.connecting,
-                         mic: s.mic, micProblem: s.micProblem, micLive: s.micLive, micPassthrough: config.micPassthrough,
+                         mic: s.mic, micProblem: s.micProblem, micLive: s.micLive, outputLive: s.outputLive,
+                         monitorLive: s.monitorLive, micPassthrough: config.micPassthrough,
                          monitor: s.monitor)
     }
 

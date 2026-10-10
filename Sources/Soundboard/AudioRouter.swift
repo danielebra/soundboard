@@ -288,19 +288,26 @@ final class AudioRouter {
         var monitor: String?
         var mic: String?
         var micProblem: String?
-        /// The input is open. It's built but paused until something needs it (`InputDemand`).
+        /// Each engine is built but stopped until something needs it (`Demand`); these say
+        /// which are running.
         var micLive = false
+        var outputLive = false
+        var monitorLive = false
     }
 
-    /// Why the input should be open. With no reason it's paused, so the mic (and the
-    /// noise removal) only run while an app listens to the output or the Audio tab is open.
-    struct InputDemand: OptionSet {
+    /// Why audio should be running. With no reason every engine is stopped, so the mic, the
+    /// noise removal and the devices (which keep the Mac awake while open) are idle between calls.
+    struct Demand: OptionSet {
         let rawValue: Int
-        /// Another app reads from the output device (Zoom in a call).
-        static let listener = InputDemand(rawValue: 1)
-        /// The Audio tab's meters and input test.
-        static let audioTab = InputDemand(rawValue: 2)
+        /// Another app reads from the output device (Zoom in a call): everything runs.
+        static let listener = Demand(rawValue: 1)
+        /// The Audio tab's meters and input test: everything runs.
+        static let audioTab = Demand(rawValue: 2)
+        /// A sound played recently: only the monitor runs, so you hear it.
+        static let playback = Demand(rawValue: 4)
     }
+
+    private enum Engine: CaseIterable { case mic, output, monitor }
 
     /// Peak levels, 0…1.
     struct Levels {
@@ -347,8 +354,13 @@ final class AudioRouter {
     private let setupQueue = DispatchQueue(label: "soundboard.audio.setup")
     private var generation = 0
     private let listeners = AudioListeners()
-    private var inputDemand: InputDemand = []
+    private var demand: Demand = []
+    /// Engines being started or stopped on `setupQueue`.
+    private var switching: Set<Engine> = []
     private var pauseWork: DispatchWorkItem?
+    private var lingerWork: DispatchWorkItem?
+    /// Sounds pressed while their engine was starting: voice and token, scheduled once it runs.
+    private var pending: [(voice: Int, token: Int, sound: AVAudioPCMBuffer, volume: Float)] = []
     /// For noise removal, which is bypassed while the input is paused.
     private var settings = Config()
 
@@ -382,7 +394,7 @@ final class AudioRouter {
         voiceIsOverlay = Array(repeating: false, count: voiceCount)
         voiceFrames = Array(repeating: 0, count: voiceCount)
         voiceStarted = Array(repeating: 0, count: voiceCount)
-        listeners.onChange = { [weak self] listening in self?.setInputDemand(.listener, listening) }
+        listeners.onChange = { [weak self] listening in self?.setDemand(.listener, listening) }
     }
 
     var isCensoring: Bool { realtime.censor.load(ordering: .relaxed) }
@@ -442,10 +454,9 @@ final class AudioRouter {
             status.mic = built.status.mic
             status.micProblem = built.status.micProblem
             status.monitor = built.status.monitor
-            status.micLive = false
             taps.reset()
         }
-        if mic != nil { updateInput() }
+        updateEngines(stopping: false)
 
         // A device change can stop an engine; rebuild only then. Engines also post this
         // notification harmlessly right after we move them off the default device —
@@ -479,7 +490,7 @@ final class AudioRouter {
                     built.status.micProblem = "Input is the same device as the output — pick a different input"
                 } else {
                     do {
-                        // Started by `updateInput` once something needs it.
+                        // Started by `updateEngines` once something needs it.
                         let mic = try MicCapture(device: device.id, taps: taps)
                         built.mic = mic
                         built.status.mic = device.name
@@ -504,7 +515,6 @@ final class AudioRouter {
                     let tone = bus.addCensorTone(realtime)
                     tone.volume = config.monitorVolume
                     let preview = bus.addPreviewPlayer()
-                    try bus.start()
                     built.monitorTone = tone
                     built.previewPlayer = preview
                     built.monitor = bus
@@ -564,7 +574,7 @@ final class AudioRouter {
             bus.engine.mainMixerNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { buffer, _ in
                 taps.set(\.output, peak(buffer))
             }
-            try bus.start()
+            bus.engine.prepare() // started by `updateEngines` once something needs it
             built.broadcast = bus
             built.status.output = device.name
         } catch {
@@ -578,71 +588,126 @@ final class AudioRouter {
     }
 
     private func needsRebuild(_ engine: AVAudioEngine) -> Bool {
+        // A stopped engine is only a failure while it's meant to be running; idle engines are
+        // stopped on purpose (and a rebuild would leave them stopped, then post this again).
         if let mic, engine === mic.engine {
-            // The ring buffer and mixer were set up for the old rate. A paused input isn't
-            // running on purpose (and a rebuild would leave it paused, then post this again).
+            // The ring buffer and mixer were set up for the old rate.
             return (status.micLive && !engine.isRunning) || mic.rateChanged
         }
-        return !engine.isRunning
+        if engine === broadcast?.engine { return status.outputLive && !engine.isRunning }
+        if engine === monitor?.engine { return status.monitorLive && !engine.isRunning }
+        return false
     }
 
-    // MARK: Input on demand (main thread)
+    // MARK: Engines on demand (main thread)
 
-    /// Opens the input as soon as something needs it, and pauses it a few seconds after the
-    /// last reason goes away (so a quick restart in Zoom doesn't bounce the mic).
-    func setInputDemand(_ reason: InputDemand, _ on: Bool) {
-        if on { inputDemand.insert(reason) } else { inputDemand.remove(reason) }
+    /// Starts what's needed right away, and stops the rest a few seconds after the last
+    /// reason goes away (so a quick restart in Zoom doesn't bounce the devices).
+    func setDemand(_ reason: Demand, _ on: Bool) {
+        if on { demand.insert(reason) } else { demand.remove(reason) }
         pauseWork?.cancel()
         pauseWork = nil
-        if inputDemand.isEmpty, status.micLive {
-            let work = DispatchWorkItem { [weak self] in self?.updateInput() }
+        updateEngines(stopping: false)
+        if Engine.allCases.contains(where: { isLive($0) && !isWanted($0) }) {
+            let work = DispatchWorkItem { [weak self] in
+                self?.pauseWork = nil
+                self?.updateEngines(stopping: true)
+            }
             pauseWork = work
             DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: work)
-        } else {
-            updateInput()
         }
     }
 
-    /// Starts or pauses the input to match `inputDemand`. Device calls run on `setupQueue`.
-    private func updateInput() {
-        guard let mic else { return }
-        let wanted = !inputDemand.isEmpty
-        guard wanted != status.micLive else { return }
-        status.micLive = wanted
-        if !wanted { applyNoiseRemoval() } // bypass before pausing; un-bypassed once audio flows
-        setupQueue.async { [weak self] in
-            var rateChanged = false, failure: String?
-            if wanted {
-                rateChanged = mic.rateChanged
-                if !rateChanged {
-                    do { try mic.start() } catch { failure = error.localizedDescription }
-                }
-            } else {
-                mic.engine.stop()
+    private func isWanted(_ engine: Engine) -> Bool {
+        switch engine {
+        case .mic, .output: !demand.isDisjoint(with: [.listener, .audioTab])
+        case .monitor: !demand.isEmpty
+        }
+    }
+
+    private func isLive(_ engine: Engine) -> Bool {
+        switch engine {
+        case .mic: status.micLive
+        case .output: status.outputLive
+        case .monitor: status.monitorLive
+        }
+    }
+
+    private func setLive(_ engine: Engine, _ live: Bool) {
+        switch engine {
+        case .mic: status.micLive = live
+        case .output: status.outputLive = live
+        case .monitor: status.monitorLive = live
+        }
+    }
+
+    private func audioEngine(_ engine: Engine) -> AVAudioEngine? {
+        switch engine {
+        case .mic: mic?.engine
+        case .output: broadcast?.engine
+        case .monitor: monitor?.engine
+        }
+    }
+
+    /// Starts (and with `stopping`, stops) engines to match `demand`. Device calls run on `setupQueue`.
+    private func updateEngines(stopping: Bool) {
+        for kind in Engine.allCases where !switching.contains(kind) {
+            guard let engine = audioEngine(kind) else { continue }
+            let wanted = isWanted(kind)
+            if wanted == isLive(kind) || (!wanted && !stopping) { continue }
+            switching.insert(kind)
+            if !wanted {
+                setLive(kind, false) // before stopping, so the stop isn't taken for a failure
+                if kind == .mic { applyNoiseRemoval() } // bypassed while paused
+                if engine === runningBuses.first?.engine { stopAll() } // its completions would be lost
             }
-            DispatchQueue.main.async {
-                guard let self, mic === self.mic else { return }
-                if rateChanged {
-                    // The graph was built for the old rate; a rebuild picks up the new one.
-                    self.status.micLive = false
-                    self.onNeedsRebuild?()
-                    return
+            let mic = kind == .mic ? self.mic : nil
+            setupQueue.async { [weak self] in
+                var rateChanged = false, failure: String?
+                if wanted {
+                    rateChanged = mic?.rateChanged ?? false
+                    if !rateChanged {
+                        engine.prepare()
+                        do { try engine.start() } catch { failure = error.localizedDescription }
+                    }
+                } else {
+                    engine.stop()
                 }
-                if let failure {
-                    self.status.micLive = false
-                    self.status.micProblem = "\(self.status.mic ?? "Input"): \(failure)"
-                    self.status.mic = nil
-                } else if wanted {
-                    self.applyNoiseRemoval()
-                }
-                NSLog("Soundboard: input %@", self.status.micLive ? "open" : "paused")
-                self.onStatusChange?()
+                DispatchQueue.main.async { self?.switched(kind, engine, wanted: wanted, rateChanged: rateChanged, failure: failure) }
             }
         }
+    }
+
+    private func switched(_ kind: Engine, _ engine: AVAudioEngine, wanted: Bool, rateChanged: Bool, failure: String?) {
+        switching.remove(kind)
+        guard engine === audioEngine(kind) else {
+            updateEngines(stopping: false) // rebuilt meanwhile: the new engine may be waiting on this
+            return
+        }
+        if rateChanged {
+            // The graph was built for the old rate; a rebuild picks up the new one.
+            onNeedsRebuild?()
+            return
+        }
+        if let failure {
+            NSLog("Soundboard: %@ didn't start: %@", "\(kind)", failure)
+            if kind == .mic {
+                status.micProblem = "\(status.mic ?? "Input"): \(failure)"
+                status.mic = nil
+            }
+        } else if wanted {
+            setLive(kind, true)
+            if kind == .mic { applyNoiseRemoval() }
+        }
+        NSLog("Soundboard: %@ %@", "\(kind)", isLive(kind) ? "running" : "stopped")
+        playPending()
+        updateEngines(stopping: pauseWork == nil) // demand may have changed while switching
+        onStatusChange?()
     }
 
     func teardown() {
         stopAll()
+        pending.removeAll()
         observers.forEach(NotificationCenter.default.removeObserver)
         observers.removeAll()
         let engines = [mic?.engine, broadcast?.engine, monitor?.engine]
@@ -660,8 +725,9 @@ final class AudioRouter {
 
     // MARK: Playback (main thread)
 
+    /// Monitor first: it keeps running while sounds play, so it carries the completions.
     private var runningBuses: [OutputBus] {
-        [broadcast, monitor].compactMap { $0 }.filter { $0.engine.isRunning }
+        [monitor, broadcast].compactMap { $0 }.filter { $0.engine.isRunning }
     }
 
     /// `.toggle`: tap starts, tap again stops; with `stopOthers` it ends other toggle sounds.
@@ -676,8 +742,11 @@ final class AudioRouter {
                 for v in 0..<voiceCount where voiceOwner[v] != nil && !voiceIsOverlay[v] { release(v) }
             }
         }
-        let buses = runningBuses
-        guard !buses.isEmpty else { return }
+        setDemand(.playback, true)
+        lingerWork?.cancel()
+        // The monitor may be starting for this press (it's idle outside calls); play once it runs.
+        let starting = switching.contains { $0 != .mic && isWanted($0) }
+        guard starting || !runningBuses.isEmpty else { return soundsMayHaveEnded() }
 
         let v = (0..<voiceCount).first { voiceOwner[$0] == nil } ?? nextVoice
         nextVoice = (v + 1) % voiceCount
@@ -692,7 +761,16 @@ final class AudioRouter {
         starts += 1
         voiceStarted[v] = starts
 
-        for (i, bus) in buses.enumerated() {
+        if starting {
+            pending.append((v, token, sound, volume))
+        } else {
+            schedule(v, token: token, sound: sound, volume: volume)
+        }
+        if !wasPlaying { onPlaybackChange?(key, true) }
+    }
+
+    private func schedule(_ v: Int, token: Int, sound: AVAudioPCMBuffer, volume: Float) {
+        for (i, bus) in runningBuses.enumerated() {
             let player = bus.voices[v]
             player.stop()
             player.volume = volume
@@ -705,7 +783,29 @@ final class AudioRouter {
             }
             player.play()
         }
-        if !wasPlaying { onPlaybackChange?(key, true) }
+    }
+
+    /// Plays sounds that were pressed while their engine started, once nothing is starting.
+    private func playPending() {
+        guard !pending.isEmpty, !switching.contains(where: { $0 != .mic }) else { return }
+        let ready = pending
+        pending.removeAll()
+        for press in ready where voiceToken[press.voice] == press.token {
+            if runningBuses.isEmpty {
+                release(press.voice) // nothing could start
+            } else {
+                schedule(press.voice, token: press.token, sound: press.sound, volume: press.volume)
+            }
+        }
+    }
+
+    /// Keeps the monitor open a while after the last sound, so the next press plays at once.
+    private func soundsMayHaveEnded() {
+        guard !voiceOwner.contains(where: { $0 != nil }) else { return }
+        lingerWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.setDemand(.playback, false) }
+        lingerWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 30, execute: work)
     }
 
     func stop(_ key: String) {
@@ -723,6 +823,7 @@ final class AudioRouter {
         voiceOwner[v] = nil
         for bus in [broadcast, monitor].compactMap({ $0 }) { bus.voices[v].stop() }
         if !isPlaying(key) { onPlaybackChange?(key, false) }
+        soundsMayHaveEnded()
     }
 
     /// How far the newest copy of `key` has played, in seconds, and its length.
@@ -741,6 +842,7 @@ final class AudioRouter {
         guard voiceToken[v] == token, let key = voiceOwner[v] else { return }
         voiceOwner[v] = nil
         if !isPlaying(key) { onPlaybackChange?(key, false) }
+        soundsMayHaveEnded()
     }
 
     /// Applies volume and noise suppression changes without restarting anything.
