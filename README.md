@@ -85,10 +85,16 @@ hears, and your mic.
 Make a new sound from any of three sources, then fine-tune it:
 
 - **File on Disk:** choose a file, or drop any audio or video file onto the tab.
-- **YouTube:** paste a link and press **Fetch**. A small 480p copy downloads.
-- **Website:** paste a soundboard page and press **Find Sounds**. It lists the audio
-  files on the page so you can pick one. Direct links to audio files work too, and
-  other video sites go through yt-dlp.
+- **YouTube:** paste a link and press **Look Up**. You see the title, channel, length
+  and thumbnail, with nothing downloaded yet. **Preview Audio** streams it with a seek
+  bar. Then **Download to Edit** fetches either the whole video (a small 480p copy) or
+  **just part of it**: mark the start and end from the preview position.
+- **Website:** paste a soundboard page (or a direct link to an audio file) and press
+  **Find Sounds**. It lists the sounds it finds, with their names where the site
+  provides them. **▶** streams one to listen to; **Use** downloads it for editing.
+
+Previews stream through the download helper straight to your speakers, and nothing is
+saved. Downloads over 200 MB, and links that turn out to be web pages, are refused.
 
 Then drag across the waveform to select the moment, adjust the handles, use **Zoom In**
 for precision, and press **Play Selection** (P) to check it. **Save** adds it to the
