@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 
 // SoundboardFetch: the only part of Soundboard that uses the network.
@@ -5,12 +6,15 @@ import Foundation
 // The sandboxed main app can't pass launch arguments to another app, so it writes
 // <job>.request.json into the downloads folder and launches this helper:
 //
-//   {"link": …, "mode": "video" | "page" | "direct", "title": optional}
+//   {"link": …, "mode": …, "title": optional, "section": optional "start-end" seconds}
 //
-//   video   YouTube and other video sites, via yt-dlp (small ≤480p copy).
-//   page    A web page such as a soundboard site: finds the audio files on it. One →
-//           downloads it; several → reports them as choices; none → tries yt-dlp.
-//   direct  A link straight to an audio/video file.
+//   info     Video details only (title, channel, length, thumbnail) — nothing else downloaded.
+//   preview  Streams the audio to the speakers without saving it. "kind": "video" streams a
+//            YouTube/video-site link (via yt-dlp), otherwise the link is an audio file.
+//            Seeks when <job>.seek (seconds) appears; stops on <job>.cancel.
+//   video    Downloads a small (≤480p) copy via yt-dlp, optionally just "section".
+//   page     Lists the sounds on a web page (a soundboard site) as choices. Downloads nothing.
+//   direct   Downloads a link straight to an audio/video file.
 //
 // Progress and the result go to <job>.json. Stops early if <job>.cancel appears.
 // Files macOS can't play (ogg, webm, opus…) are converted to WAV with ffmpeg.
@@ -67,6 +71,8 @@ let mediaExtensions: Set<String> = ["mp3", "wav", "ogg", "oga", "m4a", "aac", "o
 let playableExtensions: Set<String> = ["mp3", "wav", "m4a", "aac", "flac", "mp4", "mov", "m4v", "aif", "aiff", "caf"]
 let userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
 
+let maxDownloadBytes = 200_000_000
+
 func isMedia(_ url: URL) -> Bool { mediaExtensions.contains(url.pathExtension.lowercased()) }
 
 func niceName(_ url: URL) -> String {
@@ -90,6 +96,10 @@ func download(_ url: URL, title: String) throws -> (file: String, title: String)
             outcome = .failure(error)
         } else if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             outcome = .failure(FetchError(message: "The site answered with error \(http.statusCode)."))
+        } else if let type = response?.mimeType?.lowercased(), type.hasPrefix("text/") || type.contains("html") {
+            outcome = .failure(FetchError(message: "That link is a web page, not a sound file."))
+        } else if let temp, let size = try? temp.resourceValues(forKeys: [.fileSizeKey]).fileSize, size > maxDownloadBytes {
+            outcome = .failure(FetchError(message: "That file is over \(maxDownloadBytes / 1_000_000) MB — too big for a sound effect."))
         } else if let temp {
             do {
                 try? FileManager.default.removeItem(at: target)
@@ -255,7 +265,32 @@ func findMedia(on page: URL) throws -> (choices: [(url: URL, name: String)], pag
 
 // MARK: - yt-dlp
 
-func runYtDlp(_ link: String) throws -> (file: String, title: String) {
+/// Runs yt-dlp and returns what it printed (for --print / -g queries that download nothing).
+func ytdlpOutput(_ arguments: [String]) throws -> String {
+    guard let ytdlp = tool("yt-dlp") else {
+        throw FetchError(message: "yt-dlp isn't installed. In Terminal, run: brew install yt-dlp")
+    }
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: ytdlp)
+    process.arguments = arguments
+    var environment = ProcessInfo.processInfo.environment
+    environment["PATH"] = searchPath.joined(separator: ":")
+    process.environment = environment
+    let out = Pipe(), err = Pipe()
+    process.standardOutput = out
+    process.standardError = err
+    try process.run()
+    let output = out.fileHandleForReading.readDataToEndOfFile()
+    let errors = String(decoding: err.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+    process.waitUntilExit()
+    guard process.terminationStatus == 0 else {
+        let line = errors.split(separator: "\n").last { $0.hasPrefix("ERROR:") }.map { String($0.dropFirst(6)) }
+        throw FetchError(message: line?.trimmingCharacters(in: .whitespaces) ?? "yt-dlp couldn't read that link.")
+    }
+    return String(decoding: output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
+func runYtDlp(_ link: String, section: String? = nil) throws -> (file: String, title: String) {
     guard let ytdlp = tool("yt-dlp") else {
         throw FetchError(message: "yt-dlp isn't installed. In Terminal, run: brew install yt-dlp")
     }
@@ -270,8 +305,7 @@ func runYtDlp(_ link: String) throws -> (file: String, title: String) {
         "-o", folder.appending(path: "\(job).%(ext)s").path,
         "--print", "before_dl:TITLE:%(title)s",
         "--print", "after_move:FILE:%(filepath)s",
-        "--", link,
-    ]
+    ] + (section.map { ["--download-sections", "*\($0)", "--force-keyframes-at-cuts"] } ?? []) + ["--", link]
     var environment = ProcessInfo.processInfo.environment
     environment["PATH"] = searchPath.joined(separator: ":") // so yt-dlp finds ffmpeg and deno
     process.environment = environment
@@ -369,6 +403,80 @@ func ensurePlayable(_ file: String) throws -> String {
     return output.path
 }
 
+// MARK: - Video details
+
+/// Title, channel, length and a thumbnail (saved small, for the editor to show).
+func videoInfo(_ link: String) throws -> [String: Any] {
+    let json = try ytdlpOutput(["--no-playlist", "--skip-download", "--no-warnings",
+                                "--print", "%(.{title,uploader,channel,duration,thumbnail})j", "--", link])
+    guard let line = json.split(separator: "\n").last,
+          let info = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any] else {
+        throw FetchError(message: "Couldn't read that video's details.")
+    }
+    var result: [String: Any] = ["state": "info",
+                                 "title": info["title"] as? String ?? "",
+                                 "uploader": info["uploader"] as? String ?? info["channel"] as? String ?? "",
+                                 "duration": info["duration"] as? Double ?? 0]
+    if let thumbnail = (info["thumbnail"] as? String).flatMap(URL.init(string:)),
+       let image = try? download(thumbnail, title: "") {
+        result["thumbnail"] = image.file
+    }
+    return result
+}
+
+// MARK: - Streaming preview
+
+/// Plays a link through the speakers without saving it, until it ends or is cancelled.
+func preview(_ url: URL) throws {
+    let asset = AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": ["User-Agent": userAgent]])
+    let item = AVPlayerItem(asset: asset)
+    let player = AVPlayer(playerItem: item)
+    player.play()
+    let seekURL = folder.appending(path: "\(job).seek")
+    let started = Date()
+
+    // Streamed files often don't report a length on the item; ask the asset instead.
+    final class Shared: @unchecked Sendable {
+        var ended = false
+        var assetDuration = 0.0
+    }
+    let shared = Shared()
+    let observer = NotificationCenter.default.addObserver(forName: AVPlayerItem.didPlayToEndTimeNotification,
+                                                          object: item, queue: .main) { _ in shared.ended = true }
+    defer { NotificationCenter.default.removeObserver(observer) }
+    Task {
+        if let seconds = try? await asset.load(.duration).seconds, seconds.isFinite { shared.assetDuration = seconds }
+    }
+    while true {
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        if isCancelled {
+            player.pause()
+            try? FileManager.default.removeItem(at: cancelURL)
+            try? FileManager.default.removeItem(at: statusURL)
+            return
+        }
+        if let text = try? String(contentsOf: seekURL, encoding: .utf8), let seconds = Double(text) {
+            try? FileManager.default.removeItem(at: seekURL)
+            player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600))
+            player.play()
+        }
+        if item.status == .failed {
+            throw FetchError(message: "Can't preview this one (\(url.pathExtension.isEmpty ? "unsupported" : url.pathExtension) audio). Use it to load it instead.")
+        }
+        let duration = item.duration.seconds.isFinite && item.duration.seconds > 0 ? item.duration.seconds : shared.assetDuration
+        let position = player.currentTime().seconds
+        let buffering = item.status != .readyToPlay || player.timeControlStatus == .waitingToPlayAtSpecifiedRate
+        if item.status != .readyToPlay, Date().timeIntervalSince(started) > 20 {
+            throw FetchError(message: "The preview didn't start — the site may be blocking it.")
+        }
+        if shared.ended || (duration > 0 && position >= duration - 0.05) {
+            report(["state": "ended", "position": duration, "duration": duration])
+            return
+        }
+        report(["state": buffering ? "loading" : "playing", "position": position, "duration": duration])
+    }
+}
+
 // MARK: - Main
 
 do {
@@ -379,27 +487,35 @@ do {
     var result: (file: String, title: String)
 
     switch mode {
+    case "info":
+        report(try videoInfo(link))
+        exit(0)
+    case "preview":
+        if request["kind"] == "video" {
+            // A direct audio stream for the video, played without downloading the file.
+            let stream = try ytdlpOutput(["--no-playlist", "--no-warnings", "-g",
+                                          "-f", "bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/best[ext=mp4]", "--", link])
+            guard let first = stream.split(separator: "\n").first, let streamURL = URL(string: String(first)) else {
+                throw FetchError(message: "Couldn't find an audio stream for that video.")
+            }
+            try preview(streamURL)
+        } else {
+            try preview(url)
+        }
+        exit(0)
     case "direct":
         result = try download(url, title: request["title"] ?? niceName(url))
     case "page":
-        if isMedia(url) {
-            result = try download(url, title: niceName(url))
-        } else {
-            progress(0, "Looking for sounds on the page…")
-            let found = try findMedia(on: url)
-            if found.choices.count == 1 {
-                result = try download(found.choices[0].url, title: found.choices[0].name)
-            } else if found.choices.count > 1 {
-                report(["state": "choices", "title": found.pageTitle,
-                        "choices": found.choices.map { ["url": $0.url.absoluteString, "name": $0.name] }])
-                exit(0)
-            } else {
-                progress(0, "No sound files on the page — trying it as a video…")
-                result = try runYtDlp(link)
-            }
+        // Never downloads: lists what's there so it can be previewed first.
+        let found = isMedia(url) ? (choices: [(url: url, name: niceName(url))], pageTitle: "") : try findMedia(on: url)
+        if found.choices.isEmpty {
+            throw FetchError(message: "No sounds found on that page. If it's a video, try the YouTube tab — it works with many video sites.")
         }
+        report(["state": "choices", "title": found.pageTitle,
+                "choices": found.choices.map { ["url": $0.url.absoluteString, "name": $0.name] }])
+        exit(0)
     default:
-        result = try runYtDlp(link)
+        result = try runYtDlp(link, section: request["section"])
     }
 
     let playable = try ensurePlayable(result.file)

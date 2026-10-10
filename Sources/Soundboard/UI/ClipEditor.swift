@@ -24,6 +24,8 @@ final class ClipEditorModel: ObservableObject {
         case fetching(progress: Double, message: String)
         /// A web page had several sounds on it.
         case choosing([Fetcher.Choice], pageTitle: String)
+        /// A video was looked up (nothing downloaded yet).
+        case info(Fetcher.VideoInfo)
         case loading
         case ready
         case failed(String)
@@ -52,6 +54,13 @@ final class ClipEditorModel: ObservableObject {
     @Published var useFrame = true
     @Published var showLabel = true
     @Published var saving = false
+    /// For videos: download only `partStart...partEnd` instead of the whole thing.
+    @Published var downloadPart = false
+    @Published var partStart = 0.0
+    @Published var partEnd = 0.0
+    /// The video link that was looked up (what previews and downloads use).
+    @Published private(set) var videoLink = ""
+    let preview = PreviewPlayer()
     /// The sound/key it's going to already has an image (so don't replace it by default).
     @Published var targetHasImage = false {
         didSet { useFrame = !targetHasImage }
@@ -64,6 +73,8 @@ final class ClipEditorModel: ObservableObject {
     let player = AVPlayer()
     private var asset: AVURLAsset?
     private var downloaded: URL?
+    /// Thumbnail saved by a video look-up.
+    private var thumbnail: URL?
     private var timeObserver: Any?
     private var stopObserver: Any?
     private var fetchTask: Task<Void, Never>?
@@ -93,12 +104,30 @@ final class ClipEditorModel: ObservableObject {
                                                : "Paste a web link, like https://www.example.com/sounds/…")
             return
         }
-        run(Fetcher.fetch(url, mode: source == .youtube ? .video : .page))
+        if source == .youtube {
+            videoLink = url.absoluteString
+            run(Fetcher.fetch(url, mode: .info))
+        } else {
+            run(Fetcher.fetch(url, mode: .page))
+        }
+    }
+
+    /// Downloads the looked-up video (or just the chosen part) into the editor.
+    func downloadVideo() {
+        guard case let .info(info) = phase, let url = URL(string: videoLink) else { return }
+        preview.stop()
+        var section: ClosedRange<Double>?
+        if downloadPart, partEnd > partStart {
+            // A second either side, so there's room to fine-tune.
+            section = max(0, partStart - 1)...min(info.duration > 0 ? info.duration : partEnd + 1, partEnd + 1)
+        }
+        run(Fetcher.fetch(url, mode: .video, section: section))
     }
 
     /// Downloads one of the sounds found on a web page.
     func pick(_ choice: Fetcher.Choice) {
         guard let url = URL(string: choice.url) else { return }
+        preview.stop()
         run(Fetcher.fetch(url, mode: .direct, title: choice.name))
     }
 
@@ -115,6 +144,12 @@ final class ClipEditorModel: ObservableObject {
                         self.phase = .fetching(progress: fraction, message: message)
                     case let .choices(choices, pageTitle):
                         self.phase = .choosing(choices, pageTitle: pageTitle)
+                    case let .info(info):
+                        self.thumbnail = info.thumbnail
+                        self.partStart = 0
+                        self.partEnd = min(info.duration, 30)
+                        self.downloadPart = info.duration > 120
+                        self.phase = .info(info)
                     case let .done(file, title):
                         self.downloaded = file
                         self.open(file, title: title)
@@ -162,6 +197,7 @@ final class ClipEditorModel: ObservableObject {
 
     /// Back to an empty editor (keeps the chosen source).
     func reset() {
+        preview.stop()
         fetchTask?.cancel()
         cleanUp()
         player.replaceCurrentItem(with: nil)
@@ -363,8 +399,9 @@ final class ClipEditorModel: ObservableObject {
     /// Downloaded videos are only needed while editing.
     func cleanUp() {
         player.pause()
-        if let downloaded { try? FileManager.default.removeItem(at: downloaded) }
+        for file in [downloaded, thumbnail].compactMap({ $0 }) { try? FileManager.default.removeItem(at: file) }
         downloaded = nil
+        thumbnail = nil
     }
 }
 
@@ -417,7 +454,9 @@ struct ClipEditorView: View {
                 }
                 placeholder("Downloading… only this step uses the internet.", systemImage: "arrow.down.circle")
             case let .choosing(choices, pageTitle):
-                ChoiceList(model: model, choices: choices, pageTitle: pageTitle)
+                ChoiceList(model: model, preview: model.preview, choices: choices, pageTitle: pageTitle)
+            case let .info(info):
+                VideoInfoCard(model: model, preview: model.preview, info: info)
             case .loading:
                 ProgressView("Reading audio…").frame(maxWidth: .infinity, maxHeight: .infinity)
             case let .failed(message):
@@ -440,6 +479,8 @@ struct ClipEditorView: View {
         .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.green, lineWidth: dropTargeted ? 3 : 0).padding(4))
+        .onDisappear { model.preview.stop() }
+        .onChange(of: model.source) { model.preview.stop() }
         .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers in
             guard let provider = providers.first else { return false }
             _ = provider.loadObject(ofClass: URL.self) { url, _ in
@@ -471,7 +512,7 @@ struct ClipEditorView: View {
                           prompt: Text(model.source == .youtube ? "Paste a YouTube link" : "Paste a link to a soundboard page or an audio file"))
                     .textFieldStyle(.roundedBorder)
                     .onSubmit { model.fetch() }
-                Button(model.source == .youtube ? "Fetch" : "Find Sounds") { model.fetch() }
+                Button(model.source == .youtube ? "Look Up" : "Find Sounds") { model.fetch() }
                     .keyboardShortcut(.defaultAction)
                     .disabled(model.link.isEmpty || isFetching)
             }
@@ -481,8 +522,8 @@ struct ClipEditorView: View {
     private var emptyMessage: String {
         switch model.source {
         case .file: "Open a sound or video from your Mac, then trim it to the part you want."
-        case .youtube: "Paste a YouTube link and press Fetch. A small copy downloads, then you pick the moment."
-        case .website: "Paste a link to a soundboard page (it lists the sounds it finds), a direct link to an audio file, or another video site."
+        case .youtube: "Paste a YouTube link and press Look Up. You can preview it before anything is downloaded."
+        case .website: "Paste a link to a soundboard page or an audio file. You can preview each sound before downloading it."
         }
     }
 
@@ -539,9 +580,10 @@ struct ClipEditorView: View {
     }
 }
 
-/// The sounds found on a web page; picking one downloads it into the editor.
+/// The sounds found on a web page. ▶ streams one without saving it; Use downloads it.
 private struct ChoiceList: View {
     @ObservedObject var model: ClipEditorModel
+    @ObservedObject var preview: PreviewPlayer
     let choices: [Fetcher.Choice]
     let pageTitle: String
     @State private var filter = ""
@@ -549,20 +591,133 @@ private struct ChoiceList: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("Found \(choices.count) sounds\(pageTitle.isEmpty ? "" : " on “\(pageTitle)”")").font(.headline).lineLimit(1)
+                Text(choices.count == 1 ? "Found 1 sound" : "Found \(choices.count) sounds\(pageTitle.isEmpty ? "" : " on “\(pageTitle)”")")
+                    .font(.headline).lineLimit(1)
                 Spacer()
                 TextField("Filter", text: $filter, prompt: Text("Filter")).textFieldStyle(.roundedBorder).frame(width: 200)
             }
+            Text("Press ▶ to listen — it streams without saving anything. Press Use to download it for editing.")
+                .font(.caption).foregroundStyle(.secondary)
             List(choices.filter { filter.isEmpty || $0.name.localizedCaseInsensitiveContains(filter) }) { choice in
+                let playing = preview.isPlaying(choice.url)
                 HStack {
-                    Image(systemName: "waveform").foregroundStyle(.secondary)
-                    Text(choice.name).lineLimit(1)
+                    Button(playing ? "Stop" : "Preview", systemImage: playing ? "stop.fill" : "play.fill") {
+                        playing ? preview.stop() : preview.play(choice.url, video: false)
+                    }
+                    .labelStyle(.iconOnly).buttonStyle(.borderless).frame(width: 22)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(choice.name).lineLimit(1)
+                        if preview.current == choice.url {
+                            switch preview.state {
+                            case .loading: Text("Loading…").font(.caption).foregroundStyle(.secondary)
+                            case .playing:
+                                if preview.duration > 0 {
+                                    ProgressView(value: min(1, preview.position / preview.duration))
+                                        .progressViewStyle(.linear).frame(maxWidth: 220)
+                                } else {
+                                    Text("Playing · \(formatClock(preview.position))").font(.caption).foregroundStyle(.secondary)
+                                }
+                            case let .failed(message): Text(message).font(.caption).foregroundStyle(.red).lineLimit(2)
+                            case .idle: EmptyView()
+                            }
+                        }
+                    }
                     Spacer()
                     Text(URL(string: choice.url)?.pathExtension.uppercased() ?? "").font(.caption).foregroundStyle(.secondary)
                     Button("Use") { model.pick(choice) }
                 }
+                .padding(.vertical, 2)
             }
             .listStyle(.bordered(alternatesRowBackgrounds: true))
+        }
+    }
+}
+
+/// A looked-up video: details, a streaming preview, and what to download.
+private struct VideoInfoCard: View {
+    @ObservedObject var model: ClipEditorModel
+    @ObservedObject var preview: PreviewPlayer
+    let info: Fetcher.VideoInfo
+
+    private var playing: Bool { preview.isPlaying(model.videoLink) }
+    private var position: Double { preview.current == model.videoLink ? preview.position : 0 }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 16) {
+                Group {
+                    if let file = info.thumbnail, let image = NSImage(contentsOf: file) {
+                        Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
+                    } else {
+                        Rectangle().fill(Color.black.opacity(0.4)).overlay(Image(systemName: "play.rectangle").font(.largeTitle).foregroundStyle(.secondary))
+                    }
+                }
+                .frame(width: 256, height: 144)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(info.title).font(.title3).bold().lineLimit(2)
+                    Text([info.uploader, info.duration > 0 ? formatClock(info.duration) : nil].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
+                        .foregroundStyle(.secondary)
+                    Label("Nothing downloaded yet. Preview it, then download only what you need.", systemImage: "checkmark.shield")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+
+            GroupBox {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 12) {
+                        Button(playing ? "Stop" : "Preview Audio", systemImage: playing ? "stop.fill" : "play.fill") {
+                            playing ? preview.stop() : preview.play(model.videoLink, video: true)
+                        }
+                        Slider(value: Binding { position } set: { preview.seek(to: $0) }, in: 0...max(info.duration, 1))
+                            .disabled(!playing)
+                        Text("\(formatClock(position)) / \(formatClock(info.duration))").monospacedDigit().foregroundStyle(.secondary)
+                    }
+                    if preview.current == model.videoLink {
+                        switch preview.state {
+                        case .loading: Text("Loading the stream…").font(.caption).foregroundStyle(.secondary)
+                        case let .failed(message): Text(message).font(.caption).foregroundStyle(.red)
+                        default: EmptyView()
+                        }
+                    }
+                }
+                .padding(6)
+            } label: {
+                Text("Preview — streams the audio, nothing is saved")
+            }
+
+            GroupBox {
+                VStack(alignment: .leading, spacing: 10) {
+                    Picker("Download", selection: $model.downloadPart) {
+                        Text("The whole video").tag(false)
+                        Text("Just part of it").tag(true)
+                    }
+                    .pickerStyle(.radioGroup)
+                    .horizontalRadioGroupLayout()
+                    if model.downloadPart {
+                        HStack(spacing: 14) {
+                            TimeNudger(title: "From", value: model.partStart,
+                                       minus: { model.partStart = max(0, model.partStart - 1) },
+                                       plus: { model.partStart = min(model.partEnd - 1, model.partStart + 1) })
+                            Button("Use Preview Position") { model.partStart = min(position, max(0, model.partEnd - 1)) }
+                                .disabled(!playing)
+                            TimeNudger(title: "To", value: model.partEnd,
+                                       minus: { model.partEnd = max(model.partStart + 1, model.partEnd - 1) },
+                                       plus: { model.partEnd = min(info.duration, model.partEnd + 1) })
+                            Button("Use Preview Position") { model.partEnd = max(position, model.partStart + 1) }
+                                .disabled(!playing)
+                        }
+                        Text("A second either side is included, so you can fine-tune it after.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Button("Download to Edit") { model.downloadVideo() }
+                        .buttonStyle(.borderedProminent)
+                }
+                .padding(6)
+            } label: {
+                Text("Download")
+            }
+            Spacer(minLength: 0)
         }
     }
 }
@@ -581,6 +736,13 @@ private struct TimeNudger: View {
             Button(action: plus) { Image(systemName: "plus") }.buttonStyle(.borderless)
         }
     }
+}
+
+/// Whole seconds, like a video player: "3:07" or "1:02:45".
+func formatClock(_ seconds: Double) -> String {
+    let total = Int(max(0, seconds).rounded(.down))
+    let (h, m, s) = (total / 3600, total / 60 % 60, total % 60)
+    return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%d:%02d", m, s)
 }
 
 func formatTime(_ seconds: Double) -> String {
