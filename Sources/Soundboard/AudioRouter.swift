@@ -69,6 +69,14 @@ private func bleep(_ out: UnsafeMutablePointer<Float>, count: Int, phase: inout 
     }
 }
 
+/// Apple's machine-learning voice isolation (the engine behind the Voice Isolation mic mode).
+/// Adds ~56 ms when active; bypassed it passes audio straight through.
+private func makeVoiceIsolation() -> AVAudioUnitEffect {
+    AVAudioUnitEffect(audioComponentDescription: AudioComponentDescription(
+        componentType: kAudioUnitType_Effect, componentSubType: kAudioUnitSubType_AUSoundIsolation,
+        componentManufacturer: kAudioUnitManufacturer_Apple, componentFlags: 0, componentFlagsMask: 0))
+}
+
 /// State shared with the real-time audio threads.
 private final class RealtimeState: @unchecked Sendable {
     let censor = Atomic<Bool>(false)
@@ -92,9 +100,34 @@ private final class OutputBus {
         }
     }
 
-    func add(_ node: AVAudioSourceNode, format: AVAudioFormat) {
+    func add(_ node: AVAudioSourceNode, format: AVAudioFormat, through effect: AVAudioUnitEffect? = nil) {
         engine.attach(node)
-        engine.connect(node, to: engine.mainMixerNode, format: format)
+        if let effect {
+            engine.attach(effect)
+            engine.connect(node, to: effect, format: format)
+            engine.connect(effect, to: engine.mainMixerNode, format: format)
+        } else {
+            engine.connect(node, to: engine.mainMixerNode, format: format)
+        }
+    }
+
+    /// The censor bleep, as its own node so noise suppression on the mic can't remove it.
+    func addCensorTone(_ state: RealtimeState) -> AVAudioSourceNode {
+        let format = AVAudioFormat(standardFormatWithSampleRate: mixFormat.sampleRate, channels: 1)!
+        var phase = 0.0
+        let tone = AVAudioSourceNode(format: format) { isSilence, _, frames, list in
+            let out = UnsafeMutableAudioBufferListPointer(list)
+            guard let data = out[0].mData?.assumingMemoryBound(to: Float.self) else { return noErr }
+            if state.censor.load(ordering: .relaxed) {
+                bleep(data, count: Int(frames), phase: &phase, sampleRate: format.sampleRate)
+            } else {
+                data.update(repeating: 0, count: Int(frames))
+                isSilence.pointee = true
+            }
+            return noErr
+        }
+        add(tone, format: format)
+        return tone
     }
 
     func start() throws {
@@ -161,6 +194,8 @@ final class AudioRouter {
     private let realtime = RealtimeState()
     private var observers: [NSObjectProtocol] = []
     private var micNode: AVAudioSourceNode?
+    private var micFilter: AVAudioUnitEffect?
+    private var broadcastTone: AVAudioSourceNode?
     private var monitorTone: AVAudioSourceNode?
     private let setupQueue = DispatchQueue(label: "soundboard.audio.setup")
     private var generation = 0
@@ -170,6 +205,8 @@ final class AudioRouter {
         var monitor: OutputBus?
         var mic: MicCapture?
         var micNode: AVAudioSourceNode?
+        var micFilter: AVAudioUnitEffect?
+        var broadcastTone: AVAudioSourceNode?
         var monitorTone: AVAudioSourceNode?
         var status = Status()
     }
@@ -215,6 +252,8 @@ final class AudioRouter {
         monitor = built.monitor
         mic = built.mic
         micNode = built.micNode
+        micFilter = built.micFilter
+        broadcastTone = built.broadcastTone
         monitorTone = built.monitorTone
         status = built.status
 
@@ -265,26 +304,29 @@ final class AudioRouter {
             do {
                 let bus = try OutputBus(device: device.id, voiceCount: voiceCount)
                 bus.effects.outputVolume = config.soundVolume
-                let rate = built.mic?.sampleRate ?? mixFormat.sampleRate
-                let format = AVAudioFormat(standardFormatWithSampleRate: rate, channels: 1)!
-                let ring = built.mic?.ring
-                let state = realtime
-                var phase = 0.0
-                let voice = AVAudioSourceNode(format: format) { isSilence, _, frames, list in
-                    let out = UnsafeMutableAudioBufferListPointer(list)
-                    guard let data = out[0].mData?.assumingMemoryBound(to: Float.self) else { return noErr }
-                    let n = Int(frames)
-                    if let ring { ring.read(into: data, count: n) } else { data.update(repeating: 0, count: n) }
-                    if state.censor.load(ordering: .relaxed) {
-                        bleep(data, count: n, phase: &phase, sampleRate: rate)
-                    } else if ring == nil {
-                        isSilence.pointee = true
+                if let mic = built.mic {
+                    let format = AVAudioFormat(standardFormatWithSampleRate: mic.sampleRate, channels: 1)!
+                    let ring = mic.ring
+                    let state = realtime
+                    let voice = AVAudioSourceNode(format: format) { _, _, frames, list in
+                        let out = UnsafeMutableAudioBufferListPointer(list)
+                        guard let data = out[0].mData?.assumingMemoryBound(to: Float.self) else { return noErr }
+                        let n = Int(frames)
+                        ring.read(into: data, count: n) // keep draining while censored
+                        if state.censor.load(ordering: .relaxed) { data.update(repeating: 0, count: n) }
+                        return noErr
                     }
-                    return noErr
+                    voice.volume = config.micVolume
+                    // Always in the graph so it can be switched without restarting the mic.
+                    let filter = makeVoiceIsolation()
+                    configure(filter, config)
+                    bus.add(voice, format: format, through: filter)
+                    built.micNode = voice
+                    built.micFilter = filter
                 }
-                voice.volume = config.micVolume
-                bus.add(voice, format: format)
-                built.micNode = voice
+                let tone = bus.addCensorTone(realtime)
+                tone.volume = config.micVolume
+                built.broadcastTone = tone
                 built.broadcast = bus
                 built.status.output = device.name
             } catch {
@@ -302,22 +344,8 @@ final class AudioRouter {
                 do {
                     let bus = try OutputBus(device: device.id, voiceCount: voiceCount)
                     bus.effects.outputVolume = config.monitorVolume
-                    let format = AVAudioFormat(standardFormatWithSampleRate: mixFormat.sampleRate, channels: 1)!
-                    let state = realtime
-                    var phase = 0.0
-                    let tone = AVAudioSourceNode(format: format) { isSilence, _, frames, list in
-                        let out = UnsafeMutableAudioBufferListPointer(list)
-                        guard let data = out[0].mData?.assumingMemoryBound(to: Float.self) else { return noErr }
-                        if state.censor.load(ordering: .relaxed) {
-                            bleep(data, count: Int(frames), phase: &phase, sampleRate: format.sampleRate)
-                        } else {
-                            data.update(repeating: 0, count: Int(frames))
-                            isSilence.pointee = true
-                        }
-                        return noErr
-                    }
+                    let tone = bus.addCensorTone(realtime)
                     tone.volume = config.monitorVolume
-                    bus.add(tone, format: format)
                     built.monitorTone = tone
                     built.monitor = bus
                     built.status.monitor = device.name
@@ -370,6 +398,8 @@ final class AudioRouter {
         broadcast = nil
         monitor = nil
         micNode = nil
+        micFilter = nil
+        broadcastTone = nil
         monitorTone = nil
     }
 
@@ -443,12 +473,20 @@ final class AudioRouter {
         if !isPlaying(key) { onPlaybackChange?(key, false) }
     }
 
-    /// Applies volume changes without restarting anything.
+    /// Applies volume and noise suppression changes without restarting anything.
     func setVolumes(_ config: Config) {
         broadcast?.effects.outputVolume = config.soundVolume
         micNode?.volume = config.micVolume
+        broadcastTone?.volume = config.micVolume
         monitor?.effects.outputVolume = config.monitorVolume
         monitorTone?.volume = config.monitorVolume
+        if let micFilter { Self.configure(micFilter, config) }
+    }
+
+    private static func configure(_ filter: AVAudioUnitEffect, _ config: Config) {
+        filter.bypass = !config.noiseSuppression
+        filter.auAudioUnit.parameterTree?.parameter(withAddress: AUParameterAddress(kAUSoundIsolationParam_WetDryMixPercent))?
+            .value = config.noiseSuppressionStrength * 100
     }
 
     func setCensor(_ on: Bool) {

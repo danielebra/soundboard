@@ -76,6 +76,11 @@ struct Config: Codable, Equatable {
     var micDevice: String?
     var micPassthrough = true
     var micVolume: Float = 1.0
+    /// Apple's voice isolation on the mic only, before sounds are mixed in, so Zoom can run in
+    /// Original Sound mode without clipping effects.
+    var noiseSuppression = false
+    /// 0…1 wet/dry mix of the voice isolation.
+    var noiseSuppressionStrength: Float = 1.0
     /// Where *you* hear the sounds. `nil` uses the macOS default output.
     var monitorDevice: String?
     var monitor = true
@@ -99,6 +104,9 @@ struct Config: Codable, Equatable {
         micDevice = try c.decodeIfPresent(String.self, forKey: .micDevice)
         micPassthrough = try c.decodeIfPresent(Bool.self, forKey: .micPassthrough) ?? d.micPassthrough
         micVolume = try c.decodeIfPresent(Float.self, forKey: .micVolume) ?? d.micVolume
+        noiseSuppression = try c.decodeIfPresent(Bool.self, forKey: .noiseSuppression) ?? d.noiseSuppression
+        noiseSuppressionStrength = try c.decodeIfPresent(Float.self, forKey: .noiseSuppressionStrength)
+            ?? d.noiseSuppressionStrength
         monitorDevice = try c.decodeIfPresent(String.self, forKey: .monitorDevice)
         monitor = try c.decodeIfPresent(Bool.self, forKey: .monitor) ?? d.monitor
         monitorVolume = try c.decodeIfPresent(Float.self, forKey: .monitorVolume) ?? d.monitorVolume
@@ -201,6 +209,8 @@ struct Config: Codable, Equatable {
       "micDevice": null,
       "micPassthrough": true,
       "micVolume": 1.0,
+      "noiseSuppression": false,
+      "noiseSuppressionStrength": 1.0,
       "monitorDevice": null,
       "monitor": true,
       "monitorVolume": 0.5,

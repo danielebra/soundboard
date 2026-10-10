@@ -879,6 +879,14 @@ struct AudioSettings: View {
                 slider("Mic", \.micVolume)
             }
             GridRow {
+                Toggle("Remove background noise", isOn: Binding { model.config.noiseSuppression } set: { value in
+                    model.update { $0.noiseSuppression = value }
+                })
+                .help("Cleans up your mic before sounds are mixed in, so Zoom can use Original Sound without clipping effects")
+                slider("Strength", \.noiseSuppressionStrength)
+                    .disabled(!model.config.noiseSuppression)
+            }
+            GridRow {
                 devicePicker("You hear on", \.monitorDevice, output: true)
                 slider("Monitor", \.monitorVolume)
             }
