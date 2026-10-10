@@ -106,6 +106,12 @@ sandbox container: `Paths.home` uses `getpwuid`, and the entitlements grant a
   `AudioRouter.setupQueue` (generation-guarded, `status.connecting` meanwhile), and
   `AudioDevices.all()` times out after 0.5 s and returns a cached list. Keep any new HAL
   calls off the main thread.
+- **Noise suppression** is `AUSoundIsolation` (Apple, macOS 13+) between the mic source node and
+  the broadcast mixer, so it never touches the sounds and Zoom can run in Original Sound. It
+  stays in the graph and is toggled by `bypass` and its wet/dry parameter, both live. Measured:
+  ~56 ms latency at any mic rate (the dry path is delay-aligned, so partial strength doesn't comb),
+  zero when bypassed, ~50–70 dB off broadband noise, ~1 dB off speech. The censor bleep is a
+  separate node on each bus, because the isolation would remove a bleep mixed into the mic.
 - Never call `AVAudioPlayerNode.play()` on a stopped engine (it raises an exception); use `runningBuses`.
 
 ## Stream Deck (Neo) protocol

@@ -41,8 +41,11 @@ and in your headphones.
 4. **Open Soundboard** from /Applications. A grid icon appears in the menu bar. Allow
    microphone access when asked.
 5. **In Zoom → Settings → Audio**, set *Microphone* to **BlackHole 2ch**. Also set
-   *Background noise suppression* to **Low** (or tick *Original sound for musicians*),
-   otherwise Zoom filters out the sound effects as "noise".
+   tick *Original sound for musicians* (leave *High-fidelity music mode* off, and keep
+   *Echo cancellation* on if you don't wear headphones). Otherwise Zoom filters out the
+   sound effects as "noise". Then turn on **Remove background noise** in Soundboard's
+   Audio tab: Soundboard cleans up your mic before mixing in the sounds, so you keep
+   noise suppression without it eating the effects.
 
 Use **Open at Login** in the menu to have it start automatically.
 
@@ -112,6 +115,11 @@ allowed to use; some sites' terms forbid downloading.
 Choose which device Zoom hears, your mic and where you hear sounds yourself, and set
 the volumes and key brightness.
 
+**Remove background noise** runs Apple's voice isolation (the same engine as the macOS
+Voice Isolation mic mode) on your mic only, before the sounds are mixed in. It runs on
+your Mac, adds about 56 ms of delay to your voice while it's on, and nothing while off.
+**Strength** blends between the cleaned and the original mic.
+
 ## Using it
 
 - **Toggle keys** (the default): press to play, press again to stop.
@@ -136,6 +144,8 @@ soon as you save.
   "micDevice": "fifine Microphone",      // null = macOS default input
   "micPassthrough": true,                // mix your mic into the output
   "micVolume": 1.0,
+  "noiseSuppression": true,              // voice isolation on the mic (not the sounds)
+  "noiseSuppressionStrength": 1.0,       // 0…1 mix of cleaned vs original mic
   "monitorDevice": null,                 // where you hear sounds; null = default output
   "monitor": true,
   "monitorVolume": 0.5,
