@@ -114,6 +114,8 @@ struct Config: Codable, Equatable {
     var brightness = 70
     /// Resting the pointer here opens a palette of the pad's keys, for use without a Stream Deck.
     var hotCorner: HotCorner = .bottomLeft
+    /// Git repository the sounds and keys sync with (Sync tab). `nil` = not syncing.
+    var syncRemote: String?
     /// Every sound you've added, whether or not it's on a key.
     var library: [SoundEntry] = []
     /// Each page is a row-major list of keys (left→right, top→bottom). `null` = blank key.
@@ -139,12 +141,58 @@ struct Config: Codable, Equatable {
         stopOthers = try c.decodeIfPresent(Bool.self, forKey: .stopOthers) ?? d.stopOthers
         brightness = try c.decodeIfPresent(Int.self, forKey: .brightness) ?? d.brightness
         hotCorner = (try? c.decodeIfPresent(HotCorner.self, forKey: .hotCorner)) ?? d.hotCorner
+        syncRemote = try c.decodeIfPresent(String.self, forKey: .syncRemote)
         library = try c.decodeIfPresent([SoundEntry].self, forKey: .library) ?? d.library
         pages = try c.decodeIfPresent([[ButtonConfig?]].self, forKey: .pages) ?? d.pages
     }
 
+    // MARK: Files
+
+    /// What config.json holds: the sounds and keys, which sync between Macs. Everything else is
+    /// this Mac's audio setup (devices differ from Mac to Mac) and lives in local.json.
+    static let sharedKeys: Set<String> = ["version", "library", "pages"]
+
     static func load() throws -> Config {
-        try JSONDecoder().decode(Config.self, from: Data(contentsOf: Paths.config))
+        try decode(shared: Data(contentsOf: Paths.config), local: try? Data(contentsOf: Paths.local))
+    }
+
+    /// Reads config.json plus local.json. Without local.json (configs from before it existed),
+    /// the audio settings come from config.json.
+    static func decode(shared: Data, local: Data?) throws -> Config {
+        guard let local else { return try JSONDecoder().decode(Config.self, from: shared) }
+        _ = try JSONDecoder().decode(Config.self, from: shared) // reports config.json errors by name
+        let settings: [String: Any]
+        do {
+            settings = try JSONSerialization.jsonObject(with: local) as? [String: Any] ?? [:]
+        } catch {
+            throw AudioError.message("local.json: \(error.localizedDescription)")
+        }
+        let all = (try JSONSerialization.jsonObject(with: shared) as? [String: Any] ?? [:])
+            .filter { sharedKeys.contains($0.key) }
+            .merging(settings.filter { !sharedKeys.contains($0.key) }) { $1 }
+        return try JSONDecoder().decode(Config.self, from: JSONSerialization.data(withJSONObject: all))
+    }
+
+    /// JSONSerialization writes 0.8 as 0.80000000000000004; decimal numbers write as typed.
+    static func tidyNumbers(_ value: Any) -> Any {
+        switch value {
+        case let number as NSNumber where CFGetTypeID(number) != CFBooleanGetTypeID() && CFNumberIsFloatType(number):
+            NSDecimalNumber(string: "\(number.doubleValue)")
+        case let object as [String: Any]: object.mapValues(tidyNumbers)
+        case let array as [Any]: array.map(tidyNumbers)
+        default: value
+        }
+    }
+
+    /// The contents of config.json and local.json. Keys are sorted so synced changes diff cleanly.
+    func encodedFiles() throws -> (shared: Data, local: Data) {
+        let all = try JSONSerialization.jsonObject(with: JSONEncoder().encode(self)) as? [String: Any] ?? [:]
+        func json(_ object: [String: Any]) throws -> Data {
+            try JSONSerialization.data(withJSONObject: Self.tidyNumbers(object), options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+                + Data("\n".utf8)
+        }
+        return (try json(all.filter { Self.sharedKeys.contains($0.key) }),
+                try json(all.filter { !Self.sharedKeys.contains($0.key) }))
     }
 
     // MARK: Library
@@ -231,19 +279,6 @@ struct Config: Codable, Equatable {
     static let defaultJSON = """
     {
       "version": 2,
-      "outputDevice": "BlackHole 2ch",
-      "micDevice": null,
-      "micPassthrough": true,
-      "micVolume": 1.0,
-      "noiseSuppression": false,
-      "noiseSuppressionStrength": 1.0,
-      "monitorDevice": null,
-      "monitor": true,
-      "monitorVolume": 0.5,
-      "soundVolume": 0.8,
-      "stopOthers": true,
-      "brightness": 70,
-      "hotCorner": "bottomLeft",
       "library": [
         { "id": "ding", "name": "Ding", "label": "Ding", "file": "/System/Library/Sounds/Glass.aiff", "color": "#2563eb" },
         { "id": "boop", "name": "Boop", "label": "Boop", "file": "/System/Library/Sounds/Submarine.aiff", "color": "#7c3aed" },
@@ -276,6 +311,8 @@ enum Paths {
 
     static let root = home.appending(path: "Library/Application Support/Soundboard", directoryHint: .isDirectory)
     static let config = root.appending(path: "config.json")
+    /// This Mac's audio settings (not synced).
+    static let local = root.appending(path: "local.json")
     static let sounds = root.appending(path: "sounds", directoryHint: .isDirectory)
     static let icons = root.appending(path: "icons", directoryHint: .isDirectory)
 

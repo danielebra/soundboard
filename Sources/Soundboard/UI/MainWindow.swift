@@ -6,6 +6,7 @@ enum MainTab: String, CaseIterable, Identifiable {
     case editor = "Sound Editor"
     case audio = "Audio"
     case settings = "Settings"
+    case sync = "Sync"
     var id: String { rawValue }
     var systemImage: String {
         switch self {
@@ -13,6 +14,7 @@ enum MainTab: String, CaseIterable, Identifiable {
         case .editor: "waveform"
         case .audio: "slider.horizontal.3"
         case .settings: "gearshape"
+        case .sync: "arrow.triangle.2.circlepath"
         }
     }
 }
@@ -31,6 +33,7 @@ struct AppStatus: Equatable {
     var monitorLive = false
     var micPassthrough = true
     var monitor: String?
+    var sync: SyncService.State = .off
 }
 
 final class MainModel: ObservableObject {
@@ -40,6 +43,7 @@ final class MainModel: ObservableObject {
     let settings: SettingsModel
     let editor = ClipEditorModel()
     let audio: AudioMonitor
+    var syncNow: () -> Void = {}
 
     init(settings: SettingsModel, router: AudioRouter) {
         self.settings = settings
@@ -74,7 +78,7 @@ struct MainView: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .frame(width: 600)
+            .frame(width: 720)
             .padding(.vertical, 12)
 
             Divider()
@@ -93,6 +97,8 @@ struct MainView: View {
                     AudioTab(settings: model.settings, monitor: model.audio, status: model.status)
                 case .settings:
                     SettingsTab(settings: model.settings)
+                case .sync:
+                    SyncTab(settings: model.settings, state: model.status.sync, syncNow: model.syncNow)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -125,6 +131,14 @@ private struct StatusStrip: View {
             }
             if let monitor = status.monitor {
                 item("Monitor: \(monitor)\(status.monitorLive ? "" : " · standby")", ok: true, systemImage: "headphones")
+            }
+            switch status.sync {
+            case .off: EmptyView()
+            case let .syncing(message): item("Sync: \(message)", ok: nil, systemImage: "arrow.triangle.2.circlepath")
+            case let .synced(date):
+                item("Synced at \(date.formatted(date: .omitted, time: .shortened))", ok: true,
+                     systemImage: "arrow.triangle.2.circlepath")
+            case .failed: item("Sync failed", ok: false, systemImage: "arrow.triangle.2.circlepath")
             }
             Spacer()
         }
@@ -224,6 +238,7 @@ final class MainWindow: NSObject, NSWindowDelegate {
         let settings = SettingsModel(config: app.config, keyCount: layout.keys, columns: layout.columns,
                                      assets: app.assets) { [weak app] config in app?.save(config) }
         let model = MainModel(settings: settings, router: app.router)
+        model.syncNow = { [weak app] in app?.syncNow() }
         settings.openClipEditor = { [weak self] target, file in self?.showEditor(target: target, file: file) }
         model.editor.onSave = { [weak self, weak model] result in
             guard let self, let model else { return }

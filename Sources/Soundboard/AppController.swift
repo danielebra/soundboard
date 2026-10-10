@@ -7,8 +7,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
     private var configError: String?
     let assets = AssetCache()
     private var keyCache: [String: Data] = [:]
-    /// What we last wrote to config.json, so our own saves don't trigger a reload.
-    private var lastWritten: Data?
+    /// What we last wrote to config.json and local.json, so our own saves don't trigger a reload.
+    private var lastWritten: (shared: Data, local: Data)?
     private var hasLoaded = false
     /// Called after the config changes (from disk or the settings window).
     var onConfigChange: ((Config) -> Void)?
@@ -26,6 +26,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
     private var delayedRaw: Float = 0
 
     let router = AudioRouter()
+    let sync = SyncService()
     private let decks = StreamDeckManager()
     private var statusItem: NSStatusItem!
     private let statusMenu = NSMenu()
@@ -73,6 +74,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
             self.publishStatus()
         }
         AudioDevices.observeChanges { [weak self] in self?.scheduleRebuild() }
+        sync.onChange = { [weak self] in self?.publishStatus() }
 
         reloadConfig()
         watchConfig()
@@ -90,6 +92,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
         if CommandLine.arguments.contains("--settings") { showSettings() }
         if CommandLine.arguments.contains("--audio") { mainWindow.show(.audio) }
         if CommandLine.arguments.contains("--app-settings") { mainWindow.show(.settings) }
+        if CommandLine.arguments.contains("--sync") { mainWindow.show(.sync) }
         if CommandLine.arguments.contains("--palette") { palette.show(on: nil, corner: config.hotCorner, stays: true) }
         if let i = CommandLine.arguments.firstIndex(of: "--clip") {
             // `--clip <file or link>` opens the clip editor with it.
@@ -140,35 +143,37 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
     // MARK: Config
 
     private func reloadConfig() {
-        let data: Data
         do {
             try Paths.ensureExists()
-            data = try Data(contentsOf: Paths.config)
-            if hasLoaded, data == lastWritten { return }
-            var loaded = try JSONDecoder().decode(Config.self, from: data)
+            let shared = try Data(contentsOf: Paths.config)
+            let local = try? Data(contentsOf: Paths.local)
+            if hasLoaded, let lastWritten, shared == lastWritten.shared, local == lastWritten.local { return }
+            var loaded = try Config.decode(shared: shared, local: local)
             configError = nil
-            if loaded.upgrade(soundFiles: Paths.soundFiles()) {
-                save(loaded) // first run after the library was added, or new files in sounds/
+            if loaded.upgrade(soundFiles: Paths.soundFiles()) || local == nil {
+                // First run after the library or local.json was added, or new files in sounds/.
+                save(loaded)
             } else {
                 apply(loaded)
             }
         } catch {
-            configError = "config.json: \(error.localizedDescription)"
+            configError = error is AudioError ? error.localizedDescription : "config.json: \(error.localizedDescription)"
             NSLog("Soundboard: %@", "\(error)")
             if !hasLoaded { apply(Config()) } // otherwise keep running with the last good config
         }
     }
 
-    /// Saves to config.json and applies immediately.
+    /// Saves to config.json and local.json and applies immediately.
     func save(_ newConfig: Config) {
         var newConfig = newConfig
         _ = newConfig.upgrade(soundFiles: Paths.soundFiles()) // keep files dropped into sounds/ in the library
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .withoutEscapingSlashes]
         do {
-            let data = try encoder.encode(newConfig)
-            try data.write(to: Paths.config, options: .atomic)
-            lastWritten = data
+            let files = try newConfig.encodedFiles()
+            try files.local.write(to: Paths.local, options: .atomic)
+            try files.shared.write(to: Paths.config, options: .atomic)
+            // Sounds and keys changed (audio settings don't sync).
+            if hasLoaded, files.shared != lastWritten?.shared { sync.changed() }
+            lastWritten = files
             configError = nil
         } catch {
             NSLog("Soundboard: saving config failed: %@", error.localizedDescription)
@@ -196,6 +201,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
         decks.deck?.setBrightness(config.brightness)
         corner.corner = config.hotCorner
         redrawDeck()
+        sync.configure(remote: config.syncRemote)
         onConfigChange?(config)
     }
 
@@ -483,6 +489,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
         if let configError { info("✗ \(configError)") }
         let broken = config.library.filter { assets.isBroken($0.file) }.count
         if broken > 0 { info("⚠︎ \(broken) sound file\(broken == 1 ? "" : "s") couldn't be loaded") }
+        switch sync.state {
+        case .off: break
+        case let .syncing(message): info("⏳ Sync: \(message)")
+        case let .synced(date): info("✓ Synced at \(date.formatted(date: .omitted, time: .shortened))")
+        case let .failed(message): info("✗ Sync failed: \(message)")
+        }
 
         menu.addItem(.separator())
         action("Open Soundboard…", #selector(showSettings), key: ",")
@@ -491,6 +503,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
         action("Stop All Sounds", #selector(stopAll), key: ".")
         action("Route Input to Output", #selector(toggleMic), on: config.micPassthrough)
         action("Monitor Sounds", #selector(toggleMonitor), on: config.monitor)
+        if sync.state != .off { action("Sync Now", #selector(syncNow)) }
         if status.micProblem == "Microphone access not granted" {
             action("Allow Microphone Access…", #selector(openMicSettings))
         }
@@ -535,7 +548,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
                          output: s.output, outputProblem: s.outputProblem, connecting: s.connecting,
                          mic: s.mic, micProblem: s.micProblem, micLive: s.micLive, outputLive: s.outputLive,
                          monitorLive: s.monitorLive, micPassthrough: config.micPassthrough,
-                         monitor: s.monitor)
+                         monitor: s.monitor, sync: sync.state)
     }
 
     private func publishStatus() {
@@ -543,6 +556,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
     }
 
     @objc private func stopAll() { router.stopAll() }
+
+    @objc func syncNow() { sync.syncNow() }
 
     @objc private func togglePalette() { palette.toggle(corner: config.hotCorner) }
 
