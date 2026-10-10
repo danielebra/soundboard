@@ -285,14 +285,27 @@ final class AudioRouter {
             }
         }
 
-        // Device format changes stop engines; ask for a rebuild. Registered after start
-        // so our own device selection doesn't trigger a loop.
+        // A device change can stop an engine; rebuild only then. Engines also post this
+        // notification harmlessly right after we move them off the default device —
+        // rebuilding on those would restart the mic forever.
         let engines = [broadcast?.engine, monitor?.engine, mic?.engine].compactMap { $0 }
         for engine in engines {
             observers.append(NotificationCenter.default.addObserver(
                 forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
-            ) { [weak self] _ in self?.onNeedsRebuild?() })
+            ) { [weak self] _ in
+                guard let self else { return }
+                if self.needsRebuild(engine) { self.onNeedsRebuild?() }
+            })
         }
+    }
+
+    private func needsRebuild(_ engine: AVAudioEngine) -> Bool {
+        if !engine.isRunning { return true }
+        if let mic, engine === mic.engine {
+            // The ring buffer and mixer were set up for the old rate.
+            return engine.inputNode.outputFormat(forBus: 0).sampleRate != mic.sampleRate
+        }
+        return false
     }
 
     func teardown() {

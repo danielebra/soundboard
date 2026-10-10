@@ -64,12 +64,24 @@ enum AudioDevices {
     }
 
     /// Calls `handler` on the main queue when devices are plugged/unplugged or defaults change.
+    /// CoreAudio also fires these for no-op updates, so only real changes get through.
     static func observeChanges(_ handler: @escaping () -> Void) {
+        var last = snapshot()
         for selector in [kAudioHardwarePropertyDevices,
                          kAudioHardwarePropertyDefaultInputDevice,
                          kAudioHardwarePropertyDefaultOutputDevice] {
             var addr = address(selector)
-            AudioObjectAddPropertyListenerBlock(system, &addr, .main) { _, _ in handler() }
+            AudioObjectAddPropertyListenerBlock(system, &addr, .main) { _, _ in
+                let now = snapshot()
+                guard now != last else { return }
+                last = now
+                handler()
+            }
         }
+    }
+
+    private static func snapshot() -> [String] {
+        all().map { "\($0.id):\($0.name):\($0.inputChannels):\($0.outputChannels)" }
+            + ["in:\(defaultDevice(output: false)?.id ?? 0)", "out:\(defaultDevice(output: true)?.id ?? 0)"]
     }
 }
