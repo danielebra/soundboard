@@ -11,7 +11,14 @@ mkdir -p "$APP/Contents/MacOS"
 cp .build/release/Soundboard "$APP/Contents/MacOS/Soundboard"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 
-# Ad-hoc signature: nothing leaves your machine, no Apple account needed.
+# Download helper (not sandboxed — it's the one piece allowed online, used only for Fetch).
+HELPER="$APP/Contents/Helpers/SoundboardFetch.app"
+mkdir -p "$HELPER/Contents/MacOS"
+cp .build/release/SoundboardFetch "$HELPER/Contents/MacOS/SoundboardFetch"
+cp Resources/FetchInfo.plist "$HELPER/Contents/Info.plist"
+
+# Ad-hoc signatures: nothing leaves your machine, no Apple account needed.
+codesign --force --sign - --options runtime "$HELPER"
 codesign --force --sign - --entitlements Resources/Soundboard.entitlements --options runtime "$APP"
 echo "Built $APP"
 

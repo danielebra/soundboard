@@ -12,6 +12,9 @@
     <!-- Microphone passthrough -->
     <key>com.apple.security.device.audio-input</key>
     <true/>
+    <!-- Files you pick in an Open dialog or drag onto a key -->
+    <key>com.apple.security.files.user-selected.read-only</key>
+    <true/>
     <!-- The only folder it can write to: ~/Library/Application Support/Soundboard -->
     <key>com.apple.security.temporary-exception.files.home-relative-path.read-write</key>
     <array>

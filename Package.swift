@@ -7,7 +7,9 @@ let package = Package(
     name: "Soundboard",
     platforms: [.macOS(.v15)],
     targets: [
-        .executableTarget(name: "Soundboard", path: "Sources/Soundboard")
+        .executableTarget(name: "Soundboard", path: "Sources/Soundboard"),
+        // The only networked piece: runs yt-dlp when you fetch a YouTube clip.
+        .executableTarget(name: "SoundboardFetch", path: "Sources/SoundboardFetch"),
     ],
     swiftLanguageModes: [.v5]
 )
