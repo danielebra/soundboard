@@ -20,6 +20,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
     private let router = AudioRouter()
     private let decks = StreamDeckManager()
     private var statusItem: NSStatusItem!
+    private let statusMenu = NSMenu()
     private var rebuildWork: DispatchWorkItem?
     private var reloadWork: DispatchWorkItem?
     private var watchers: [DispatchSourceFileSystemObject] = []
@@ -39,9 +40,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = NSImage(systemSymbolName: "square.grid.2x2.fill", accessibilityDescription: "Soundboard")
-        let menu = NSMenu()
-        menu.delegate = self
-        statusItem.menu = menu
+        statusMenu.delegate = self
+        statusItem.button?.target = self
+        statusItem.button?.action = #selector(statusItemClicked)
+        statusItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
 
         mainWindow = MainWindow(app: self)
         onConfigChange = { [weak self] config in
@@ -369,6 +371,19 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
 
         menu.addItem(.separator())
         action("Quit Soundboard", #selector(quit), key: "q")
+    }
+
+    /// Click opens the window; right-click or Control-click shows the menu.
+    @objc private func statusItemClicked() {
+        let event = NSApp.currentEvent
+        if event?.type == .rightMouseUp || event?.modifierFlags.contains(.control) == true {
+            // Attaching the menu only for this click keeps left-click free for the window.
+            statusItem.menu = statusMenu
+            statusItem.button?.performClick(nil)
+            statusItem.menu = nil
+        } else {
+            mainWindow.show()
+        }
     }
 
     @objc func showSettings() { mainWindow.showPad(page: page) }

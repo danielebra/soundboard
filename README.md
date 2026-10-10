@@ -47,7 +47,8 @@ and in your headphones.
    Audio tab: Soundboard cleans up your mic before mixing in the sounds, so you keep
    noise suppression without it eating the effects.
 
-Use **Open at Login** in the menu to have it start automatically.
+Use **Open at Login** in the menu (right-click the menu bar icon) to have it start
+automatically.
 
 > When Soundboard isn't running, Zoom gets silence from BlackHole. Switch Zoom back to
 > your real mic, or keep Soundboard open.
@@ -68,7 +69,7 @@ at the path the script prints.
 
 ## The Soundboard window
 
-Click the menu bar icon, then **Open Soundboard…** (⌘,). It's one window with three
+Click the menu bar icon (right-click it for the menu). It's one window with three
 tabs, and a status strip along the bottom that shows the Stream Deck, the output Zoom
 hears, and your mic.
 
