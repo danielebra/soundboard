@@ -249,11 +249,13 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
 
         if let deck = decks.deck {
             info("✓ \(deck.model.name)")
+        } else if decks.busyDevice != nil {
+            info("✗ Stream Deck is in use by another app")
         } else {
-            info(decks.openError == kIOReturnSuccess ? "✗ No Stream Deck connected" : "✗ Can't open USB devices")
+            info("✗ No Stream Deck connected")
         }
         if !NSRunningApplication.runningApplications(withBundleIdentifier: "com.elgato.StreamDeck").isEmpty {
-            info("⚠︎ Quit the Elgato Stream Deck app — it fights for the device")
+            info("⚠︎ Quit the Elgato Stream Deck app — it locks the device")
         }
         info(status.output.map { "✓ Sending to \($0)" } ?? "✗ \(status.outputProblem ?? "No output")")
         if config.micPassthrough {

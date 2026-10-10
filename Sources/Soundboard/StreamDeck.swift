@@ -34,7 +34,6 @@ protocol StreamDeckDelegate: AnyObject {
 final class StreamDeckManager {
     weak var delegate: StreamDeckDelegate?
     private(set) var deck: StreamDeck?
-    private(set) var openError: IOReturn = kIOReturnSuccess
     private let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
 
     func start() {
@@ -48,17 +47,33 @@ final class StreamDeckManager {
         }, context)
         // Common modes so keys keep working while the menu is open.
         IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
-        openError = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
-        if openError != kIOReturnSuccess {
-            NSLog("Soundboard: IOHIDManagerOpen failed: 0x%08x", openError)
-        }
+        // Devices are opened one by one in `attached`, so a busy device can be retried.
     }
+
+    /// Plugged in but held exclusively by another app (usually Elgato's).
+    private(set) var busyDevice: IOHIDDevice?
+    private var retryTimer: Timer?
 
     private func attached(_ device: IOHIDDevice) {
         guard deck == nil,
               let pid = IOHIDDeviceGetProperty(device, kIOHIDProductIDKey as CFString) as? Int,
               let model = deckModels[pid]
         else { return }
+
+        let result = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeNone))
+        guard result == kIOReturnSuccess else {
+            if busyDevice == nil { NSLog("Soundboard: Stream Deck busy (0x%08x), will keep retrying", result) }
+            busyDevice = device
+            retryTimer?.invalidate()
+            retryTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: false) { [weak self] _ in
+                guard let self, let device = self.busyDevice else { return }
+                self.attached(device)
+            }
+            return
+        }
+        busyDevice = nil
+        retryTimer?.invalidate()
+
         let deck = StreamDeck(device: device, model: model)
         deck.onButton = { [weak self, weak deck] index, pressed in
             guard let self, let deck else { return }
@@ -69,6 +84,10 @@ final class StreamDeckManager {
     }
 
     private func removed(_ device: IOHIDDevice) {
+        if busyDevice === device {
+            busyDevice = nil
+            retryTimer?.invalidate()
+        }
         guard let deck, deck.device === device else { return }
         self.deck = nil
         delegate?.deckDidDisconnect(deck)
