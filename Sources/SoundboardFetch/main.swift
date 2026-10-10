@@ -15,12 +15,23 @@ import Foundation
 //   video    Downloads a small (≤480p) copy via yt-dlp, optionally just "section".
 //   page     Lists the sounds on a web page (a soundboard site) as choices. Downloads nothing.
 //   direct   Downloads a link straight to an audio/video file.
+//   sync     Syncs the Soundboard folder with the Git repository in "link" (see GitSync).
+//            Reports {"state": "synced", "message": …} when done.
+//
+// git also runs this helper as config.json's merge driver: SoundboardFetch --merge-config %O %A %B.
 //
 // Progress and the result go to <job>.json. Stops early if <job>.cancel appears.
 // Files macOS can't play (ogg, webm, opus…) are converted to WAV with ffmpeg.
 
-let folder = URL(fileURLWithPath: NSHomeDirectory())
-    .appending(path: "Library/Application Support/Soundboard/downloads", directoryHint: .isDirectory)
+if CommandLine.arguments.count == 5, CommandLine.arguments[1] == "--merge-config" {
+    let paths = CommandLine.arguments
+    exit(ConfigMerge.run(base: paths[2], ours: paths[3], theirs: paths[4]))
+}
+
+/// The Soundboard folder. SOUNDBOARD_ROOT points it elsewhere, for testing sync in the shell.
+let root = ProcessInfo.processInfo.environment["SOUNDBOARD_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+    ?? URL(fileURLWithPath: NSHomeDirectory()).appending(path: "Library/Application Support/Soundboard", directoryHint: .isDirectory)
+let folder = root.appending(path: "downloads", directoryHint: .isDirectory)
 
 struct FetchError: Error {
     let message: String
@@ -480,6 +491,11 @@ func preview(_ url: URL) throws {
 // MARK: - Main
 
 do {
+    if request["mode"] == "sync" {
+        let summary = try GitSync(root: root, remote: link) { progress(0, $0) }.run()
+        report(["state": "synced", "message": summary])
+        exit(0)
+    }
     guard let url = URL(string: link), url.scheme?.hasPrefix("http") == true else {
         throw FetchError(message: "That doesn't look like a web link.")
     }
