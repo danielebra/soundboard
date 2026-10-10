@@ -27,26 +27,33 @@ final class Windows: NSObject, NSWindowDelegate {
             let layout = app.keyLayout
             let model = SettingsModel(config: app.config, keyCount: layout.keys, columns: layout.columns,
                                       assets: app.assets) { [weak app] config in app?.save(config) }
-            model.openClipEditor = { [weak self] page, key, file in self?.showClipEditor(page: page, key: key, file: file) }
+            model.openClipEditor = { [weak self] target, file in self?.showClipEditor(target: target, file: file) }
             settingsModel = model
-            settingsWindow = makeWindow(title: "Soundboard", content: SettingsView(model: model), size: CGSize(width: 900, height: 660))
+            settingsWindow = makeWindow(title: "Soundboard", content: SettingsView(model: model), size: CGSize(width: 1180, height: 680))
         }
         if let page { settingsModel?.page = page }
-        if let key { settingsModel?.selected = key }
+        if let key { settingsModel?.selection = .key(key) }
         present(settingsWindow!)
     }
 
     // MARK: Clip editor
 
-    /// `page`/`key` is the key the new sound goes on; nil picks the first empty key.
-    func showClipEditor(page: Int? = nil, key: Int? = nil, file: URL? = nil, link: String? = nil) {
+    func showClipEditor(target: ClipTarget = .library, file: URL? = nil, link: String? = nil) {
         clipWindow?.close()
-        let target = page.flatMap { p in key.map { (p, $0) } }
-        let existing = target.flatMap { t in app.config.pages[safe: t.0]?[safe: t.1] ?? nil }
-        let model = ClipEditorModel(targetHasImage: existing?.image != nil)
+        let hasImage: Bool
+        switch target {
+        case .library: hasImage = false
+        case let .replace(id): hasImage = app.config.entry(id)?.image != nil
+        case let .key(page, index):
+            let button = app.config.pages[safe: page]?[safe: index] ?? nil
+            hasImage = app.config.face(button).image != nil
+        }
+        let model = ClipEditorModel(targetHasImage: hasImage)
         model.onSave = { [weak self] result in
-            self?.place(result, at: target)
-            self?.clipWindow?.close()
+            guard let self else { return }
+            self.showSettings()
+            self.settingsModel?.addClip(result, to: target)
+            self.clipWindow?.close()
         }
         clipModel = model
         let view = ClipEditorView(model: model) { [weak self] in self?.clipWindow?.close() }
@@ -57,39 +64,6 @@ final class Windows: NSObject, NSWindowDelegate {
             model.fetch()
         }
         present(clipWindow!)
-    }
-
-    private func place(_ result: ClipEditorModel.Result, at target: (Int, Int)?) {
-        let (page, key) = target ?? firstEmptyKey()
-        let edit: (inout ButtonConfig) -> Void = { button in
-            button.action = nil
-            button.sound = result.sound
-            button.name = result.name
-            if let image = result.image { button.image = image }
-            button.label = result.showLabel || button.image == nil ? result.name : nil
-        }
-        if let settingsModel {
-            settingsModel.page = page
-            settingsModel.editButton(key, edit)
-            settingsModel.selected = key
-        } else {
-            var config = app.config
-            while config.pages.count <= page { config.pages.append([]) }
-            while config.pages[page].count <= key { config.pages[page].append(nil) }
-            var button = config.pages[page][key] ?? ButtonConfig()
-            edit(&button)
-            config.pages[page][key] = button
-            app.save(config)
-        }
-        showSettings(select: page, key: key)
-    }
-
-    private func firstEmptyKey() -> (Int, Int) {
-        let keys = app.keyLayout.keys
-        for (p, page) in app.config.pages.enumerated() {
-            for k in 0..<keys where k >= page.count || page[k] == nil { return (p, k) }
-        }
-        return (app.config.pages.count, 0)
     }
 
     // MARK: Window plumbing
