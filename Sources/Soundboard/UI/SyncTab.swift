@@ -35,7 +35,7 @@ struct SyncTab: View {
                 }
                 .buttonStyle(.bordered)
             } else {
-                TextField("Repository", text: $remote, prompt: Text("git@github.com:you/soundboard.git"))
+                TextField("Repository", text: $remote, prompt: Text("git@github.com:you/soundboard-config.git"))
                     .onSubmit(connect)
                 HStack {
                     Button("Connect", action: connect)
@@ -83,7 +83,7 @@ struct SyncTab: View {
 
     private var setup: some View {
         Section {
-            step(1, "Create an empty **private** repository, on GitHub, GitLab or your own server.")
+            step(1, "Create an empty **private** repository called `soundboard-config`, on GitHub, GitLab or your own server.")
             step(2, "Check that this Mac can reach it: in Terminal, `git ls-remote <repository>` should finish without asking for anything. Use an SSH address (`git@…`) with your SSH key, or an HTTPS one with the login saved in the Keychain.")
             step(3, "Paste the address above and press Connect. Do the same on your other Macs.")
         } header: {

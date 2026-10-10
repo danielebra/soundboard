@@ -140,9 +140,9 @@ Use the same sounds and keys on all your Macs by keeping them in a **private Git
 repository you own** (GitHub, GitLab, your own server, or even a bare repository on a
 shared drive).
 
-1. Create an empty private repository.
+1. Create an empty private repository called `soundboard-config`.
 2. Check that this Mac can reach it: `git ls-remote <address>` in Terminal should finish
-   without asking for anything. Use an SSH address (`git@github.com:you/soundboard.git`)
+   without asking for anything. Use an SSH address (`git@github.com:you/soundboard-config.git`)
    with your SSH key, or an HTTPS one whose login is saved in the Keychain.
 3. Paste the address into the **Sync** tab and press **Connect**. Repeat on your other Macs.
 
