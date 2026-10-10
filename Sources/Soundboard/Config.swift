@@ -56,6 +56,29 @@ struct ButtonConfig: Codable, Equatable {
     }
 }
 
+/// The screen corner that opens the on-screen palette.
+enum HotCorner: String, Codable, CaseIterable, Identifiable {
+    case off, topLeft, topRight, bottomLeft, bottomRight
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .off: "Off"
+        case .topLeft: "Top Left"
+        case .topRight: "Top Right"
+        case .bottomLeft: "Bottom Left"
+        case .bottomRight: "Bottom Right"
+        }
+    }
+    var isTop: Bool { self == .topLeft || self == .topRight }
+    var isRight: Bool { self == .topRight || self == .bottomRight }
+
+    /// The corner's point on a rect in screen coordinates (origin bottom left).
+    func point(of rect: NSRect) -> NSPoint {
+        NSPoint(x: isRight ? rect.maxX : rect.minX, y: isTop ? rect.maxY : rect.minY)
+    }
+}
+
 /// How a key looks, resolved through the library.
 struct KeyFace {
     var label: String?
@@ -89,6 +112,8 @@ struct Config: Codable, Equatable {
     /// Starting a toggle sound stops other toggle sounds (overlays keep playing).
     var stopOthers = true
     var brightness = 70
+    /// Resting the pointer here opens a palette of the pad's keys, for use without a Stream Deck.
+    var hotCorner: HotCorner = .bottomLeft
     /// Git repository the sounds and keys sync with (Sync tab). `nil` = not syncing.
     var syncRemote: String?
     /// Every sound you've added, whether or not it's on a key.
@@ -115,6 +140,7 @@ struct Config: Codable, Equatable {
         soundVolume = try c.decodeIfPresent(Float.self, forKey: .soundVolume) ?? d.soundVolume
         stopOthers = try c.decodeIfPresent(Bool.self, forKey: .stopOthers) ?? d.stopOthers
         brightness = try c.decodeIfPresent(Int.self, forKey: .brightness) ?? d.brightness
+        hotCorner = (try? c.decodeIfPresent(HotCorner.self, forKey: .hotCorner)) ?? d.hotCorner
         syncRemote = try c.decodeIfPresent(String.self, forKey: .syncRemote)
         library = try c.decodeIfPresent([SoundEntry].self, forKey: .library) ?? d.library
         pages = try c.decodeIfPresent([[ButtonConfig?]].self, forKey: .pages) ?? d.pages

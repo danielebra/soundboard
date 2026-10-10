@@ -1,33 +1,41 @@
 import AppKit
 import SwiftUI
 
+/// One level meter. Only its `MeterView` observes it, so a level change redraws the meter
+/// and not the whole tab, and it publishes only when what's drawn changes (silence costs nothing).
+final class LevelMeter: ObservableObject {
+    static let floor: Float = -60
+    /// Displayed level in dBFS (falls back smoothly), plus a held peak.
+    @Published private(set) var level = floor
+    @Published private(set) var peak = floor
+    private var peakAge = 0
+
+    func feed(_ linear: Float) {
+        let db = max(Self.floor, linear > 0 ? 20 * log10(linear) : Self.floor)
+        var level = max(db, self.level - 1.5) // ~45 dB/s fall at 30 fps
+        var peak = self.peak
+        if db >= peak { peak = db; peakAge = 0 } else if peakAge > 45 { peak = max(level, peak - 1) } else { peakAge += 1 }
+        // A tenth of a dB is well under a pixel.
+        level = (level * 10).rounded() / 10
+        peak = (peak * 10).rounded() / 10
+        if level != self.level { self.level = level }
+        if peak != self.peak { self.peak = peak }
+    }
+}
+
 /// Polls the router for meter levels and the input test while the Audio tab is visible.
 final class AudioMonitor: ObservableObject {
     enum Playback { case cleaned, original }
 
-    /// Displayed levels in dBFS (meters fall back smoothly), plus a held peak for each.
-    @Published var mic = Meter()
-    @Published var cleaned = Meter()
-    @Published var output = Meter()
+    let mic = LevelMeter()
+    let cleaned = LevelMeter()
+    let output = LevelMeter()
     /// Seconds recorded so far, nil when not recording.
     @Published var recordElapsed: Double?
     @Published var clip: MicClip?
     @Published var playing: Playback?
     @Published var canRecord = false
     @Published var canPlay = false
-
-    struct Meter: Equatable {
-        static let floor: Float = -60
-        var level = floor
-        var peak = floor
-        var peakAge = 0
-
-        mutating func feed(_ linear: Float) {
-            let db = max(Self.floor, linear > 0 ? 20 * log10(linear) : Self.floor)
-            level = max(db, level - 1.5) // ~45 dB/s fall at 30 fps
-            if db >= peak { peak = db; peakAge = 0 } else if peakAge > 45 { peak = max(level, peak - 1) } else { peakAge += 1 }
-        }
-    }
 
     let router: AudioRouter
     /// Recording stops on its own after this.
@@ -59,7 +67,7 @@ final class AudioMonitor: ObservableObject {
         mic.feed(levels.mic)
         cleaned.feed(levels.cleaned)
         output.feed(levels.output)
-        let elapsed = router.testRecordedSeconds
+        let elapsed = router.testRecordedSeconds?.rounded(.down) // shown in whole seconds
         if elapsed != recordElapsed { recordElapsed = elapsed }
         if let finished = router.takeTestRecording() { clip = finished }
         if canRecord != router.canRecordTest { canRecord = router.canRecordTest }
@@ -104,7 +112,6 @@ struct AudioTab: View {
             inputTest
             output
             monitorSection
-            deck
         }
         .formStyle(.grouped)
         .frame(maxWidth: 760)
@@ -221,23 +228,6 @@ struct AudioTab: View {
         }
     }
 
-    private var deck: some View {
-        Section("Stream Deck") {
-            Toggle(isOn: binding(\.stopOthers)) {
-                Text("New sound stops the previous one")
-                Text("Only for tap-to-start/stop sounds; overlays always layer.")
-            }
-            LabeledContent("Brightness") {
-                HStack {
-                    Slider(value: Binding { Double(settings.config.brightness) } set: { value in
-                        settings.update { $0.brightness = Int(value) }
-                    }, in: 10...100)
-                    Text("\(settings.config.brightness)%").monospacedDigit().frame(width: 40, alignment: .trailing)
-                }
-            }
-        }
-    }
-
     /// Why the input test can't run, if it can't.
     private var testHint: String? {
         if !monitor.canRecord {
@@ -293,46 +283,50 @@ struct AudioTab: View {
 }
 
 /// A horizontal level meter from -60 to 0 dBFS, coloured by position, with a peak marker.
+/// Drawn in a Canvas, so a new level redraws it without laying out the rest of the window.
 struct MeterView: View {
-    let meter: AudioMonitor.Meter
+    @ObservedObject var meter: LevelMeter
     var active = true
 
-    private func fraction(_ db: Float) -> CGFloat {
-        CGFloat((db - AudioMonitor.Meter.floor) / -AudioMonitor.Meter.floor).clamped(to: 0...1)
+    /// -60…-12 green, -12…-3 yellow, -3…0 red.
+    private static let gradient = Gradient(stops: [
+        .init(color: .green, location: 0), .init(color: .green, location: 0.79),
+        .init(color: .yellow, location: 0.81), .init(color: .yellow, location: 0.94),
+        .init(color: .red, location: 0.96), .init(color: .red, location: 1),
+    ])
+
+    private static func fraction(_ db: Float) -> CGFloat {
+        CGFloat((db - LevelMeter.floor) / -LevelMeter.floor).clamped(to: 0...1)
     }
 
     var body: some View {
-        HStack(spacing: 8) {
-            GeometryReader { geo in
-                let width = geo.size.width
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 3).fill(Color.primary.opacity(0.08))
-                    // -60…-12 green, -12…-3 yellow, -3…0 red.
-                    LinearGradient(stops: [
-                        .init(color: .green, location: 0), .init(color: .green, location: 0.79),
-                        .init(color: .yellow, location: 0.81), .init(color: .yellow, location: 0.94),
-                        .init(color: .red, location: 0.96), .init(color: .red, location: 1),
-                    ], startPoint: .leading, endPoint: .trailing)
-                    .mask(alignment: .leading) {
-                        Rectangle().frame(width: width * fraction(meter.level))
-                    }
-                    .clipShape(RoundedRectangle(cornerRadius: 3))
-                    if meter.peak > AudioMonitor.Meter.floor {
-                        Rectangle()
-                            .fill(meter.peak > -3 ? Color.red : Color.primary.opacity(0.6))
-                            .frame(width: 2)
-                            .offset(x: max(0, width * fraction(meter.peak) - 2))
-                    }
-                }
+        let level = meter.level, peak = meter.peak
+        let label = active ? (peak > LevelMeter.floor ? String(format: "%.0f dB", peak) : "silent") : "off"
+        Canvas { context, size in
+            let textWidth: CGFloat = 48, spacing: CGFloat = 8
+            let bar = CGRect(x: 0, y: ((size.height - 10) / 2).rounded(), width: max(0, size.width - textWidth - spacing),
+                             height: 10)
+            let track = Path(roundedRect: bar, cornerRadius: 3)
+            context.fill(track, with: .color(.primary.opacity(0.08)))
+            let filled = bar.width * Self.fraction(level)
+            if filled > 0 {
+                var clipped = context
+                clipped.clip(to: track)
+                clipped.fill(Path(CGRect(x: bar.minX, y: bar.minY, width: filled, height: bar.height)),
+                             with: .linearGradient(Self.gradient, startPoint: CGPoint(x: bar.minX, y: 0),
+                                                   endPoint: CGPoint(x: bar.maxX, y: 0)))
             }
-            .frame(height: 10)
-            Text(active ? (meter.peak > AudioMonitor.Meter.floor ? String(format: "%.0f dB", meter.peak) : "silent") : "off")
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
-                .frame(width: 48, alignment: .trailing)
+            if peak > LevelMeter.floor {
+                let x = max(0, bar.width * Self.fraction(peak) - 2)
+                context.fill(Path(CGRect(x: x, y: bar.minY, width: 2, height: bar.height)),
+                             with: .color(peak > -3 ? .red : .primary.opacity(0.6)))
+            }
+            context.draw(Text(label).font(.caption.monospacedDigit()).foregroundStyle(.secondary),
+                         at: CGPoint(x: size.width, y: size.height / 2), anchor: .trailing)
         }
-        .opacity(active ? 1 : 0.4)
         .frame(minWidth: 200)
+        .frame(height: 14)
+        .opacity(active ? 1 : 0.4)
     }
 }
 

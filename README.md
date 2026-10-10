@@ -70,7 +70,7 @@ at the path the script prints.
 
 ## The Soundboard window
 
-Click the menu bar icon (right-click it for the menu). It's one window with four
+Click the menu bar icon (right-click it for the menu). It's one window with five
 tabs, and a status strip along the bottom that shows the Stream Deck, the output Zoom
 hears, your mic, and sync.
 
@@ -134,6 +134,15 @@ to the output, or while this tab is open, and close a few seconds after. Pressin
 outside a call opens your headphones for that sound (about a tenth of a second) and keeps
 them open for 30 seconds after the last one.
 
+### Settings
+
+How you play the keys, and app-level options:
+
+- **Stream Deck**: key brightness.
+- **On-Screen Palette**: which screen corner opens the palette (see below), or Off.
+- **Playback**: whether starting a sound stops the one that's playing.
+- **General**: open Soundboard when you log in.
+
 ### Sync
 
 Use the same sounds and keys on all your Macs by keeping them in a **private Git
@@ -147,8 +156,9 @@ shared drive).
 3. Paste the address into the **Sync** tab and press **Connect**. Repeat on your other Macs.
 
 What syncs: the library, pages, sound files (`sounds/`) and key pictures (`icons/`).
-What doesn't: everything on the Audio tab (devices, volumes, noise removal, brightness),
-because each Mac has its own devices. Those live in `local.json`.
+What doesn't: everything on the Audio and Settings tabs (devices, volumes, noise removal,
+brightness, palette corner…), because each Mac has its own devices and screens. Those
+live in `local.json`.
 
 - It syncs when you connect, at launch, about 15 seconds after you change a sound or key,
   and every 10 minutes. **Sync Now** is in the tab and the menu bar menu.
@@ -183,6 +193,20 @@ in, the Sync tab shows why.
 - **A `censor` key** (hold it) mutes your mic and sends a bleep instead.
 - **A `stop` key** stops everything.
 
+### Without a Stream Deck
+
+Rest the pointer in the **bottom-left corner** of the screen for a moment and a small
+palette fans out of it: the same keys as the pad, on the same page, with the page
+switcher underneath when you have more than one. Click a key to play it; hold Bleep
+like you would on the deck. The palette never takes focus, so Zoom stays in front, and
+it folds away when the pointer leaves it or you click elsewhere. Menu → **Show Palette**
+opens it too.
+
+Change the corner (or turn it off) on the Settings tab. Pick one macOS isn't using for its
+own Hot Corners (System Settings › Desktop & Dock › Hot Corners). On several displays,
+only corners that don't touch another display count. The corner only watches where the
+pointer is (no keyboard monitoring, and no Accessibility permission).
+
 ## Configuration
 
 Everything below can be set in the window. If you'd rather edit the files,
@@ -205,6 +229,8 @@ Macs. `local.json` holds this Mac's audio settings, which don't sync:
   "soundVolume": 0.8,                    // sounds volume in the output mix
   "stopOthers": true,                    // a toggle sound stops other toggle sounds
   "brightness": 70,
+  "hotCorner": "bottomLeft",             // opens the on-screen palette: topLeft, topRight,
+                                         // bottomLeft, bottomRight or off
   "syncRemote": null                     // Git repository to sync with (Sync tab)
 }
 
@@ -256,6 +282,7 @@ swift build -c release
 .build/release/Soundboard --preview out/   # render keys to PNGs
 open build/Soundboard.app --args --settings          # open straight into Sounds & Keys
 open build/Soundboard.app --args --audio             # open the Audio tab
+open build/Soundboard.app --args --app-settings      # open the Settings tab
 open build/Soundboard.app --args --clip <file|link>  # open the Sound Editor with a file or link
 SOUNDBOARD_DEBUG=1 .build/release/Soundboard   # log raw key reports
 ```
@@ -270,4 +297,7 @@ SOUNDBOARD_DEBUG=1 .build/release/Soundboard   # log raw key reports
 | `UI/MainWindow.swift` | The single window: tabs and status strip |
 | `UI/SettingsView.swift` | Sounds & Keys tab: library, pad, inspector |
 | `UI/ClipEditor.swift` | Sound Editor tab: sources, waveform trimming, export |
-| `Fetcher.swift`, `SoundboardFetch/` | Download helper for YouTube and websites (the only networked part) |
+| `UI/SettingsTab.swift` | Settings tab: Stream Deck, palette corner, playback, open at login |
+| `Palette.swift` | On-screen palette and its hot corner, for use without a Stream Deck |
+| `UI/SyncTab.swift`, `Sync.swift` | Sync tab: sounds and keys in your own Git repository (run by the helper) |
+| `Fetcher.swift`, `SoundboardFetch/` | Download and sync helper (the only networked part) |

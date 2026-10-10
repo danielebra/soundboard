@@ -5,6 +5,7 @@ enum MainTab: String, CaseIterable, Identifiable {
     case pad = "Sounds & Keys"
     case editor = "Sound Editor"
     case audio = "Audio"
+    case settings = "Settings"
     case sync = "Sync"
     var id: String { rawValue }
     var systemImage: String {
@@ -12,6 +13,7 @@ enum MainTab: String, CaseIterable, Identifiable {
         case .pad: "square.grid.2x2"
         case .editor: "waveform"
         case .audio: "slider.horizontal.3"
+        case .settings: "gearshape"
         case .sync: "arrow.triangle.2.circlepath"
         }
     }
@@ -76,7 +78,7 @@ struct MainView: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .frame(width: 600)
+            .frame(width: 720)
             .padding(.vertical, 12)
 
             Divider()
@@ -93,6 +95,8 @@ struct MainView: View {
                                    }())
                 case .audio:
                     AudioTab(settings: model.settings, monitor: model.audio, status: model.status)
+                case .settings:
+                    SettingsTab(settings: model.settings)
                 case .sync:
                     SyncTab(settings: model.settings, state: model.status.sync, syncNow: model.syncNow)
                 }
@@ -179,7 +183,14 @@ final class MainWindow: NSObject, NSWindowDelegate {
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 760),
                                   styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
             window.title = "Soundboard"
-            window.contentViewController = NSHostingController(rootView: MainView(model: model))
+            let host = NSHostingController(rootView: MainView(model: model))
+            // By default every SwiftUI update re-measures the whole window to keep its size
+            // constraints current, which made each meter frame lay out the entire Audio tab.
+            // The window sets its own minimum instead.
+            host.sizingOptions = []
+            window.contentViewController = host
+            window.contentMinSize = NSSize(width: 1100, height: 680)
+            window.setContentSize(NSSize(width: 1200, height: 760)) // the autosaved frame, if any, wins below
             window.isReleasedWhenClosed = false
             window.delegate = self
             window.setFrameAutosaveName("SoundboardMain")

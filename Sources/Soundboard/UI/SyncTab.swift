@@ -47,7 +47,7 @@ struct SyncTab: View {
         } header: {
             Text("Sync with a Git repository")
         } footer: {
-            Text("Your sounds, key pictures and pages are kept in a private Git repository that you own, so every Mac you connect has the same board. Settings on the Audio tab stay on each Mac, because each Mac has its own devices.")
+            Text("Your sounds, key pictures and pages are kept in a private Git repository that you own, so every Mac you connect has the same board. Settings on the Audio and Settings tabs stay on each Mac, because each Mac has its own devices.")
                 .foregroundStyle(.secondary)
         }
     }

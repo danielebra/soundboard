@@ -17,6 +17,7 @@ swift build -c release                 # both products
 ./build.sh --install                   # → /Applications
 open build/Soundboard.app --args --settings            # open the window (Sounds & Keys)
 open build/Soundboard.app --args --audio               # … on the Audio tab
+open build/Soundboard.app --args --app-settings        # … on the Settings tab
 open build/Soundboard.app --args --clip <file|link>    # … Sound Editor with a file or link
 open build/Soundboard.app --args --settings --snapshot 3   # saves the window as snapshot.png in the
                                                            # Soundboard folder after 3s (see Testing)
@@ -61,13 +62,15 @@ sandbox container: `Paths.home` uses `getpwuid`, and the entitlements grant a
 | `AudioDevices.swift` | CoreAudio device enumeration (timeout-guarded), change listener with snapshot dedupe |
 | `AudioListeners.swift` | Whether another app reads input from the output device (CoreAudio process objects) |
 | `StreamDeck.swift` | IOHIDManager + Stream Deck gen-2 protocol; retries when another app holds the device |
+| `Palette.swift` | On-screen palette for use without a deck: `CornerTrigger` (hot corner) + non-activating panel |
 | `KeyRenderer.swift` | CoreGraphics key/screen images, JPEG (rotated 180°) for the device |
 | `AssetCache.swift` | Decoded sounds (48 kHz stereo) and icons, cached by file mtime; renders `KeyFace` |
 | `Fetcher.swift` | App side of the helper protocol (`fetch` stream) + `PreviewPlayer` (streaming previews) |
 | `Sync.swift` | `SyncService`: when to run the helper's `sync` (launch, 15 s after a change, every 10 min), its state |
-| `UI/MainWindow.swift` | The single window: tabs (Sounds & Keys, Sound Editor, Audio), status strip, main menu |
+| `UI/MainWindow.swift` | The single window: tabs (Sounds & Keys, Sound Editor, Audio, Settings), status strip, main menu |
 | `UI/SettingsView.swift` | `SettingsModel` + Sounds & Keys tab (library, pad, inspectors) |
 | `UI/AudioTab.swift` | Audio tab (input → processing → test → output → monitor), meters, `AudioMonitor` |
+| `UI/SettingsTab.swift` | Settings tab: Stream Deck, on-screen palette, playback, open at login. Not signal settings |
 | `UI/ClipEditor.swift` | Sound Editor: sources (file/YouTube/website), waveform selection, export to WAV |
 | `UI/SyncTab.swift` | Sync tab: connect / disconnect a repository, status, setup help |
 | `SoundboardFetch/main.swift` | Helper: `info`, `preview`, `video`, `page`, `direct`, `sync` modes |
@@ -87,7 +90,7 @@ sandbox container: `Paths.home` uses `getpwuid`, and the entitlements grant a
   adds it to the library. Deleting a sound must therefore move its file out of `sounds/`
   (Trash, or a `sounds/Deleted/` fallback), or it gets re-added.
 - **Two files:** `config.json` holds only `Config.sharedKeys` (`version`, `library`, `pages`),
-  which sync. Everything else (devices, volumes, noise removal, brightness, `syncRemote`) is
+  which sync. Everything else (devices, volumes, noise removal, brightness, `hotCorner`, `syncRemote`) is
   per Mac, in `local.json`. Without `local.json` (older configs) those keys are read from
   config.json and split out on the next save; with it, any audio keys in config.json are
   ignored. Both are written with sorted keys and tidy decimals so synced diffs stay small.
@@ -181,6 +184,16 @@ page back/forward), and a 248×58 info screen.
   `SOUNDBOARD_DEBUG=1` logs the average screen write time. Measured on the Neo (USB high
   speed): ~5 KB per frame, a 2 ms write, and about +0.3% of a core over the ~7% the audio
   engines use, so 20 fps leaves plenty of room.
+- **Without a deck**, `Palette` mirrors the current page (`keyLayout` falls back to the Neo's
+  4×2) and calls the same `AppController.press(index:pressed:)` / `turnPage(by:)` as the deck.
+  `CornerTrigger` uses `NSEvent` mouse-moved monitors (global + local); mouse monitors need no
+  Accessibility permission and work from the sandbox (verified). It waits 0.15 s in the corner,
+  then re-arms once the pointer leaves. The panel is `.nonactivatingPanel` at `.popUpMenu` level
+  and can't become key, so clicks never take focus from Zoom. It closes on a click elsewhere
+  (global mouse-down monitor) or when a 10 Hz poll, which runs only while it's open, finds the pointer gone.
+  `open … --args --palette --snapshot 2` shows and snapshots it (rendered from its layers).
+  Synthetic mouse events from the agent shell are dropped (no Accessibility), so the hot corner
+  itself has to be tried by hand.
 - The Elgato app opens the device exclusively (`0xe00002c5`), so `StreamDeckManager` retries every 2 s.
 - Other gen-2 models are in the table but untested.
 
@@ -254,5 +267,11 @@ and thumbnail on reset.
   and views need an explicit background.
 - **Don't make audible test noise** on the user's Mac: preview tests used a silent file
   served by `python3 -m http.server` on 127.0.0.1. Test videos were Big Buck Bunny (open-licensed, Blender).
+- **Live SwiftUI views must not invalidate the window.** The Audio tab once used ~24% of a core on
+  the main thread just for its meters. Three things fixed it: each meter is its own `LevelMeter`
+  observed only by its `MeterView` (and it publishes only when what's drawn changes), the meter is
+  drawn in a `Canvas` so a new level doesn't change any layout, and the window's
+  `NSHostingController` has `sizingOptions = []` (otherwise every update re-measures the whole
+  window). Profile with `sample <pid> 5` and look at the main thread.
 - **`rm` on a shell variable gets blocked** by a safety check; use `"${VAR:?}"`.
 - **Commits:** small and incremental, **no Co-Authored-By trailer** (user preference).
