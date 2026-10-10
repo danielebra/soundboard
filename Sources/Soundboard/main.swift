@@ -27,8 +27,8 @@ if arguments.count >= 3, arguments[1] == "--preview" {
         "message": .message(title: "Soundboard", subtitle: "Page 1 of 3 · input off"),
         "playing": .playing(title: "▶ \(sound?.name ?? "Sound")  +1", info: "-0:03",
                             peaks: sound.flatMap { assets.waveform($0.file, columns: columns) } ?? [], played: columns / 3),
-        "input": .input(title: "Page 1 of 3", info: "noise removal", warning: false, levels: voice),
-        "input-warning": .input(title: "Page 1 of 3", info: "no output", warning: true, levels: voice),
+        "input": .input(title: "Page 1 of 3", warning: nil, noiseRemoval: true, levels: voice),
+        "input-warning": .input(title: "Page 1 of 3", warning: "connecting audio…", noiseRemoval: true, levels: voice),
     ]
     for (name, frame) in frames {
         try KeyRenderer.png(KeyRenderer.screen(frame, width: 248, height: 58)).write(to: out.appending(path: "screen-\(name).png"))

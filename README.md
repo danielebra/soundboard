@@ -137,7 +137,8 @@ Laid out in the order the signal flows, with a live level meter at each stage:
 - **The Neo's screen** shows the playing sound's waveform, with how far it has got and
   the time left. Otherwise, while your input is on, it shows your voice level over the
   last few seconds. Green is what Zoom hears and grey is the raw input, so you can see
-  noise removal working. Red means the input clipped. After a few seconds of silence the
+  noise removal working. Red means the input clipped. A green person-with-waves icon
+  (Apple's Voice Isolation symbol) means noise removal is on. After a few seconds of silence the
   screen stops updating.
 - **A `censor` key** (hold it) mutes your mic and sends a bleep instead.
 - **A `stop` key** stops everything.

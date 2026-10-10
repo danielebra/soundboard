@@ -8,8 +8,8 @@ enum ScreenFrame: Equatable {
     case message(title: String, subtitle: String)
     /// A sound's waveform (column peaks, 0…1) with the first `played` columns highlighted.
     case playing(title: String, info: String, peaks: [Float], played: Int)
-    /// Recent input levels, oldest first.
-    case input(title: String, info: String, warning: Bool, levels: [InputLevel])
+    /// Recent input levels, oldest first, with an icon while noise removal is on.
+    case input(title: String, warning: String?, noiseRemoval: Bool, levels: [InputLevel])
 
     /// Heights are 0…1 of the graph, in steps of a pixel or so, so silence doesn't redraw.
     struct InputLevel: Equatable {
@@ -119,8 +119,10 @@ enum KeyRenderer {
                     ctx.fill(CGRect(x: graph.minX + CGFloat(played), y: graph.minY, width: 1, height: graph.height))
                 }
 
-            case let .input(title, info, warning, levels):
-                headerLine(title, info: info, infoColor: warning ? .systemOrange : .lightGray, in: header)
+            case let .input(title, warning, noiseRemoval, levels):
+                // Apple's Voice Isolation icon: noise removal runs on the same engine.
+                headerLine(title, info: warning ?? "", infoColor: .systemOrange,
+                           symbol: noiseRemoval ? "person.wave.2.fill" : nil, in: header)
                 // Newest on the right. Raw input in grey behind what's sent, so noise removal shows.
                 let start = graph.maxX - CGFloat(levels.count * 4) + 1
                 for (i, level) in levels.enumerated() {
@@ -141,15 +143,26 @@ enum KeyRenderer {
     private static let clipColor = CGColor(srgbRed: 1, green: 0.25, blue: 0.2, alpha: 1)
 
     /// Bold title on the left, `info` on the right; the title gives way when space runs out.
-    private static func headerLine(_ title: String, info: String, infoColor: NSColor, in rect: CGRect) {
+    /// `symbol` (an SF Symbol, in green) goes at the far right, after `info`.
+    private static func headerLine(_ title: String, info: String, infoColor: NSColor, symbol: String? = nil,
+                                   in rect: CGRect) {
+        var right = rect.maxX
+        let config = NSImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
+            .applying(NSImage.SymbolConfiguration(paletteColors: [NSColor(cgColor: activeColor)!]))
+        if let symbol, let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?.withSymbolConfiguration(config) {
+            let size = image.size
+            image.draw(in: CGRect(x: right - size.width, y: rect.midY - size.height / 2, width: size.width, height: size.height))
+            right -= size.width + 6
+        }
         let infoAttributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular), .foregroundColor: infoColor]
         let infoWidth = info.isEmpty ? 0 : ceil((info as NSString).size(withAttributes: infoAttributes).width)
-        (info as NSString).draw(at: CGPoint(x: rect.maxX - infoWidth, y: rect.minY), withAttributes: infoAttributes)
+        (info as NSString).draw(at: CGPoint(x: right - infoWidth, y: rect.minY), withAttributes: infoAttributes)
+        let used = rect.maxX - right + infoWidth
 
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byTruncatingTail
-        let titleRect = CGRect(x: rect.minX, y: rect.minY, width: rect.width - infoWidth - (infoWidth > 0 ? 8 : 0),
+        let titleRect = CGRect(x: rect.minX, y: rect.minY, width: rect.width - used - (used > 0 ? 8 : 0),
                                height: rect.height)
         (title as NSString).draw(with: titleRect, options: [.truncatesLastVisibleLine, .usesLineFragmentOrigin], attributes: [
             .font: NSFont.systemFont(ofSize: 13, weight: .bold), .foregroundColor: NSColor.white, .paragraphStyle: paragraph])

@@ -361,9 +361,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
                             peaks: peaks, played: played)
         }
         if censorKey == nil, status.mic != nil {
-            return .input(title: pageInfo.isEmpty ? "Soundboard" : pageInfo,
-                          info: warning ?? (config.noiseSuppression ? "noise removal" : ""),
-                          warning: warning != nil, levels: inputLevels)
+            // Noise removal runs on the output engine, so it's only on while the output is.
+            return .input(title: pageInfo.isEmpty ? "Soundboard" : pageInfo, warning: warning,
+                          noiseRemoval: config.noiseSuppression && status.output != nil, levels: inputLevels)
         }
         let mic = config.micPassthrough ? "input off" : nil
         let subtitle = [pageInfo, warning ?? mic].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
