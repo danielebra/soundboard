@@ -5,12 +5,14 @@ enum MainTab: String, CaseIterable, Identifiable {
     case pad = "Sounds & Keys"
     case editor = "Sound Editor"
     case audio = "Audio"
+    case settings = "Settings"
     var id: String { rawValue }
     var systemImage: String {
         switch self {
         case .pad: "square.grid.2x2"
         case .editor: "waveform"
         case .audio: "slider.horizontal.3"
+        case .settings: "gearshape"
         }
     }
 }
@@ -70,7 +72,7 @@ struct MainView: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .frame(width: 480)
+            .frame(width: 600)
             .padding(.vertical, 12)
 
             Divider()
@@ -87,6 +89,8 @@ struct MainView: View {
                                    }())
                 case .audio:
                     AudioTab(settings: model.settings, monitor: model.audio, status: model.status)
+                case .settings:
+                    SettingsTab(settings: model.settings)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -104,8 +104,6 @@ struct AudioTab: View {
             inputTest
             output
             monitorSection
-            deck
-            palette
         }
         .formStyle(.grouped)
         .frame(maxWidth: 760)
@@ -218,36 +216,6 @@ struct AudioTab: View {
             Text("Monitor")
         } footer: {
             Text("Where you hear the sounds and input tests. Use headphones so the input doesn't pick the sounds up a second time.")
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private var deck: some View {
-        Section("Stream Deck") {
-            Toggle(isOn: binding(\.stopOthers)) {
-                Text("New sound stops the previous one")
-                Text("Only for tap-to-start/stop sounds; overlays always layer.")
-            }
-            LabeledContent("Brightness") {
-                HStack {
-                    Slider(value: Binding { Double(settings.config.brightness) } set: { value in
-                        settings.update { $0.brightness = Int(value) }
-                    }, in: 10...100)
-                    Text("\(settings.config.brightness)%").monospacedDigit().frame(width: 40, alignment: .trailing)
-                }
-            }
-        }
-    }
-
-    private var palette: some View {
-        Section {
-            Picker("Screen corner", selection: binding(\.hotCorner)) {
-                ForEach(HotCorner.allCases) { Text($0.title).tag($0) }
-            }
-        } header: {
-            Text("On-Screen Palette")
-        } footer: {
-            Text("Rest the pointer in this corner of the screen to fan out the pad's keys, so you can play sounds without a Stream Deck. The palette doesn't take focus from your call. Pick a corner macOS isn't using for Hot Corners (System Settings › Desktop & Dock).")
                 .foregroundStyle(.secondary)
         }
     }
