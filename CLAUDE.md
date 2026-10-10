@@ -67,7 +67,7 @@ sandbox container: `Paths.home` uses `getpwuid`, and the entitlements grant a
 | `KeyRenderer.swift` | CoreGraphics key/screen images, JPEG (rotated 180°) for the device |
 | `AssetCache.swift` | Decoded sounds (48 kHz stereo) and icons, cached by file mtime; renders `KeyFace` |
 | `Fetcher.swift` | App side of the helper protocol (`fetch` stream) + `PreviewPlayer` (streaming previews) |
-| `Sync.swift` | `SyncService`: when to run the helper's `sync` (launch, 15 s after a change, every 10 min), its state |
+| `Sync.swift` | `SyncService`: when to run the helper's `sync` (connect, launch, 15 s after a change, Sync Now; no timer), its state |
 | `UI/MainWindow.swift` | The single window: tabs (Sounds & Keys, Sound Editor, Audio, Settings), status strip, main menu |
 | `UI/SettingsView.swift` | `SettingsModel` + Sounds & Keys tab (library, pad, inspectors) |
 | `UI/AudioTab.swift` | Audio tab (input → processing → test → output → monitor), meters, `AudioMonitor` |

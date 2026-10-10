@@ -160,8 +160,9 @@ What doesn't: everything on the Audio and Settings tabs (devices, volumes, noise
 brightness, palette corner…), because each Mac has its own devices and screens. Those
 live in `local.json`.
 
-- It syncs when you connect, at launch, about 15 seconds after you change a sound or key,
-  and every 10 minutes. **Sync Now** is in the tab and the menu bar menu.
+- It only syncs when you do something: connect, launch Soundboard, change a sound or key
+  (it sends the change about 15 seconds later, picking up other Macs' changes on the way),
+  or press **Sync Now** (in the tab and the menu bar menu). Nothing syncs in the background.
 - A Mac that connects to a repository already in use keeps its own sounds but takes the
   repository's keys.
 - Edits on different Macs merge: different sounds, different keys, or different settings

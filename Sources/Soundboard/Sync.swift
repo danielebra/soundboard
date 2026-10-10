@@ -4,8 +4,10 @@ import Foundation
 /// has the same board. The app has no network access, so the helper does the syncing (its
 /// `sync` mode); this side decides when, and shows how it went.
 ///
-/// Syncs when connected and at launch, 15 s after the sounds or keys change, and every
-/// 10 minutes. One sync runs at a time; a request during one runs once it's done.
+/// Only syncs in response to something you do: connecting, launching the app, changing the
+/// sounds or keys (15 s after the last edit), or Sync Now. Nothing runs in the background, since
+/// Macs rarely need each other's changes within minutes. One sync runs at a time; a request
+/// during one runs once it's done.
 final class SyncService {
     enum State: Equatable {
         case off
@@ -23,7 +25,6 @@ final class SyncService {
     private var running = false
     private var again = false
     private var soon: DispatchWorkItem?
-    private var timer: Timer?
 
     /// Called whenever the config is applied; only a different repository changes anything.
     func configure(remote: String?) {
@@ -32,16 +33,10 @@ final class SyncService {
         guard normalized != self.remote else { return }
         self.remote = normalized
         soon?.cancel()
-        timer?.invalidate()
-        timer = nil
         guard normalized != nil else {
             state = .off
             return
         }
-        let timer = Timer(timeInterval: 600, repeats: true) { [weak self] _ in self?.syncNow() }
-        timer.tolerance = 60
-        RunLoop.main.add(timer, forMode: .common)
-        self.timer = timer
         syncNow()
     }
 

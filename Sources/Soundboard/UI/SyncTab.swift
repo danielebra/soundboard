@@ -89,7 +89,7 @@ struct SyncTab: View {
         } header: {
             Text("Setting up")
         } footer: {
-            Text("A Mac that connects to a repository already in use keeps its own sounds and takes the repository's keys. Changes sync at launch, shortly after you edit, and every 10 minutes. If two Macs change the same sound or key before syncing, the repository's version wins. Nothing is deleted for good: every version stays in the repository's history.")
+            Text("A Mac that connects to a repository already in use keeps its own sounds and takes the repository's keys. Your edits are sent shortly after you make them. Other Macs' changes arrive when you launch Soundboard, edit, or press Sync Now; nothing syncs in the background. If two Macs change the same sound or key before syncing, the repository's version wins. Nothing is deleted for good: every version stays in the repository's history.")
                 .foregroundStyle(.secondary)
         }
     }
