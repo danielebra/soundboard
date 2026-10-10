@@ -119,12 +119,10 @@ func download(_ url: URL, title: String) throws -> (file: String, title: String)
 
 // MARK: - Finding sounds on a web page
 
-/// Audio/video file links in a page's HTML: src/href attributes, onclick="play('/x.mp3')",
-/// JSON blobs — anything quoted that ends in a media extension.
-func findMedia(on page: URL) throws -> (choices: [(url: URL, name: String)], pageTitle: String) {
-    var request = URLRequest(url: page)
+func fetchText(_ url: URL) throws -> String {
+    var request = URLRequest(url: url)
     request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
-    var html = ""
+    var text = ""
     var failure: String?
     let done = DispatchSemaphore(value: 0)
     URLSession.shared.dataTask(with: request) { data, response, error in
@@ -133,33 +131,126 @@ func findMedia(on page: URL) throws -> (choices: [(url: URL, name: String)], pag
         } else if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             failure = "The site answered with error \(http.statusCode)."
         } else if let data {
-            html = String(decoding: data, as: UTF8.self)
+            text = String(decoding: data, as: UTF8.self)
         }
         done.signal()
     }.resume()
     done.wait()
     if let failure { throw FetchError(message: failure) }
+    return text
+}
+
+/// Whether `url` answers with audio/video (a HEAD request, nothing downloaded).
+func servesMedia(_ url: URL) -> Bool {
+    var request = URLRequest(url: url, timeoutInterval: 8)
+    request.httpMethod = "HEAD"
+    request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+    var ok = false
+    let done = DispatchSemaphore(value: 0)
+    URLSession.shared.dataTask(with: request) { _, response, _ in
+        if let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) {
+            let type = (http.value(forHTTPHeaderField: "Content-Type") ?? "").lowercased()
+            ok = type.hasPrefix("audio/") || type.hasPrefix("video/") || type.contains("octet-stream")
+        }
+        done.signal()
+    }.resume()
+    done.wait()
+    return ok
+}
+
+/// Undoes the escaping pages use when they embed data: HTML entities, Angular's
+/// transfer-state codes (&q; for a quote), and JSON's escaped slashes.
+func unescape(_ html: String) -> String {
+    var text = html
+    for (code, value) in [("&q;", "\""), ("&s;", "'"), ("&l;", "<"), ("&g;", ">"), ("&quot;", "\""), ("&#39;", "'"),
+                          ("&#x27;", "'"), ("&#x2F;", "/"), ("\\u002F", "/"), ("\\u002f", "/"), ("\\/", "/"),
+                          ("&a;", "&"), ("&amp;", "&")] {
+        text = text.replacingOccurrences(of: code, with: value)
+    }
+    return text
+}
+
+/// Sounds on a page. Looks in two places:
+/// - embedded data records, e.g. {"name": "Airhorn", "fileName": "abc.mp3", "url": "airhorn-123"},
+///   which also give each sound a proper name;
+/// - any quoted link ending in an audio/video extension (src, href, onclick="play('/x.mp3')").
+/// Bare file names ("abc.mp3") are resolved by asking the site which common folder serves them.
+/// If the page is one sound's own page (its address ends in a record's "url"/"slug"), only that
+/// sound is returned.
+func findMedia(on page: URL) throws -> (choices: [(url: URL, name: String)], pageTitle: String) {
+    let html = try fetchText(page)
+    let text = unescape(html)
+
+    struct Candidate {
+        let raw: String
+        var name: String?
+        var slug: String?
+    }
+    var candidates: [Candidate] = []
+    var seen = Set<String>()
+    func isMediaPath(_ value: String) -> Bool {
+        let path = value.split(separator: "?").first.map(String.init) ?? value
+        return mediaExtensions.contains(URL(fileURLWithPath: path).pathExtension.lowercased())
+    }
+
+    let objectPattern = try NSRegularExpression(pattern: #"\{[^{}]{0,4000}\}"#)
+    for match in objectPattern.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+        guard let range = Range(match.range, in: text),
+              let object = try? JSONSerialization.jsonObject(with: Data(text[range].utf8)) as? [String: Any] else { continue }
+        for case let value as String in object.values where isMediaPath(value) && seen.insert(value).inserted {
+            let name = ["name", "title", "label", "text"].lazy.compactMap { object[$0] as? String }.first
+            let slug = ["url", "slug", "permalink"].lazy.compactMap { object[$0] as? String }.first { !isMediaPath($0) }
+            candidates.append(Candidate(raw: value, name: name?.trimmingCharacters(in: .whitespaces), slug: slug))
+        }
+    }
 
     let extensions = mediaExtensions.joined(separator: "|")
-    let pattern = #"["'(]((?:https?:)?[^"'()\s<>]+?\.(?:"# + extensions + #"))(?:\?[^"'()\s<>]*)?["')]"#
-    let regex = try NSRegularExpression(pattern: pattern, options: [.caseInsensitive])
-    var seen = Set<String>()
-    var choices: [(url: URL, name: String)] = []
-    for match in regex.matches(in: html, range: NSRange(html.startIndex..., in: html)) {
-        guard let range = Range(match.range(at: 1), in: html) else { continue }
-        let raw = String(html[range]).replacingOccurrences(of: "\\/", with: "/")
-        guard let url = URL(string: raw, relativeTo: page)?.absoluteURL, url.scheme?.hasPrefix("http") == true,
-              seen.insert(url.absoluteString).inserted else { continue }
-        choices.append((url, niceName(url)))
-        if choices.count >= 100 { break }
+    let linkPattern = try NSRegularExpression(
+        pattern: #"["'(]((?:https?:)?[^"'()\s<>]+?\.(?:"# + extensions + #"))(?:\?[^"'()\s<>]*)?["')]"#,
+        options: [.caseInsensitive])
+    for match in linkPattern.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+        guard let range = Range(match.range(at: 1), in: text) else { continue }
+        let raw = String(text[range])
+        if seen.insert(raw).inserted { candidates.append(Candidate(raw: raw)) }
+    }
+
+    // A bare file name has no folder; find the one the site serves them from.
+    let isBare = { (raw: String) in !raw.contains("/") }
+    var bareBase: URL?
+    if let sample = candidates.first(where: { isBare($0.raw) })?.raw {
+        let origin = URL(string: "/", relativeTo: page)!.absoluteURL
+        let folders = [page.deletingLastPathComponent()] + ["uploads/", "sounds/", "audio/", "media/", "files/", "mp3/", ""]
+            .compactMap { URL(string: $0, relativeTo: origin)?.absoluteURL }
+        bareBase = folders.first { servesMedia($0.appending(path: sample)) }
+    }
+
+    var choices: [(url: URL, name: String, slug: String?)] = []
+    var urls = Set<String>()
+    for candidate in candidates {
+        let resolved: URL?
+        if isBare(candidate.raw) {
+            resolved = bareBase?.appending(path: candidate.raw)
+        } else {
+            resolved = URL(string: candidate.raw, relativeTo: page)?.absoluteURL
+        }
+        guard let url = resolved, url.scheme?.hasPrefix("http") == true, urls.insert(url.absoluteString).inserted else { continue }
+        let name = candidate.name.flatMap { $0.isEmpty ? nil : $0 } ?? niceName(url)
+        choices.append((url, name, candidate.slug))
+        if choices.count >= 200 { break }
+    }
+
+    // One sound's own page: just that sound.
+    let last = page.lastPathComponent
+    if !last.isEmpty, let own = choices.first(where: { $0.slug.map { $0 == last || $0.hasSuffix("/" + last) } ?? false }) {
+        return ([(own.url, own.name)], "")
     }
 
     var pageTitle = ""
     if let start = html.range(of: "<title>", options: .caseInsensitive),
        let end = html.range(of: "</title>", options: .caseInsensitive, range: start.upperBound..<html.endIndex) {
-        pageTitle = String(html[start.upperBound..<end.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+        pageTitle = unescape(String(html[start.upperBound..<end.lowerBound])).trimmingCharacters(in: .whitespacesAndNewlines)
     }
-    return (choices, pageTitle)
+    return (choices.map { ($0.url, $0.name) }, pageTitle)
 }
 
 // MARK: - yt-dlp
