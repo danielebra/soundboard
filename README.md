@@ -15,10 +15,10 @@ and in your headphones.
 - **No network access, enforced by macOS.** The app runs in the App Sandbox *without*
   the network entitlement, so the kernel refuses any connection it tries to make. You
   can check: `codesign -d --entitlements - /Applications/Soundboard.app`.
-- **One small, separate helper does the YouTube downloads.** `SoundboardFetch` (about
-  150 lines) runs only when you press Fetch. It runs the open-source
-  [yt-dlp](https://github.com/yt-dlp/yt-dlp) and exits. The main app hands it the link
-  through a file and never touches the network itself.
+- **One small, separate helper does all downloading.** `SoundboardFetch` runs only when
+  you press Fetch or Find Sounds. It downloads the link (using the open-source
+  [yt-dlp](https://github.com/yt-dlp/yt-dlp) for video sites) and exits. The main app
+  hands it the link through a file and never touches the network itself.
 - **No third-party code.** About 2,900 lines of Swift on Apple frameworks only
   (IOKit, CoreAudio, AVFoundation, AppKit). No analytics, no crash reporter, no updater.
 - **Only touches its own folder.** The sandbox allows writes to
@@ -63,35 +63,48 @@ Sounds from **Voicemod's own library** are stored scrambled on disk and can't be
 imported. Those keys keep their artwork and show ⚠︎. Save your own copy of the sound
 at the path the script prints.
 
-## Customising keys
+## The Soundboard window
 
-Menu bar icon → **Configure Keys…** (⌘,) opens a window that mirrors your Stream Deck:
+Click the menu bar icon, then **Open Soundboard…** (⌘,). It's one window with three
+tabs, and a status strip along the bottom that shows the Stream Deck, the output Zoom
+hears, and your mic.
 
-- Click a key to set what it does (a sound, Stop All, or a hold-to-bleep key), its
-  label, its image or background colour, how it plays (tap to start/stop, or overlay)
-  and its volume.
-- Drag a sound or image file from Finder onto a key, or drag one key onto another to
-  swap them.
-- Add or delete pages, and choose your mic, output and monitor devices and volumes.
+### Sounds & Keys
 
-Changes are saved to `config.json` and appear on the Stream Deck straight away.
+- **Library (left):** every sound you've added, with its length and whether it's on the
+  pad. Search it, rename sounds, or drop audio files onto it to add them.
+- **Pad (middle):** your Stream Deck. Drag a sound from the library onto a key. Drag
+  keys to swap them, onto the page arrows to move them, or back onto the library to
+  take them off the pad. The sound stays in the library either way.
+- **Inspector (right):** edits the selected key or sound: name, key cap (label, image,
+  colour), play mode (tap to start/stop, or overlay), and volume. A sound's settings
+  apply to every key it's on.
 
-## Clipping sounds from YouTube
+### Sound Editor
 
-**New Sound from YouTube…** (in the menu, or **Clip from YouTube…** on a key):
+Make a new sound from any of three sources, then fine-tune it:
 
-1. Paste a link and press **Fetch**. A small 480p copy downloads; this is the only step
-   that uses the internet. You can also **Open File…** for a video or audio file you
-   already have.
-2. Drag across the waveform to select the moment. Drag the handles to adjust, use
-   **Zoom In** for fine-tuning, and press **Play Selection** (or P) to hear it.
-3. Name it and press **Save Sound**. The clip is saved as a WAV with short fades so it
-   doesn't click. By default it's evened out in volume, and the video frame becomes the
-   key's image.
+- **File on Disk:** choose a file, or drop any audio or video file onto the tab.
+- **YouTube:** paste a link and press **Fetch**. A small 480p copy downloads.
+- **Website:** paste a soundboard page and press **Find Sounds**. It lists the audio
+  files on the page so you can pick one. Direct links to audio files work too, and
+  other video sites go through yt-dlp.
 
-The downloaded video is deleted when you close the window. This needs `yt-dlp`:
-`brew install yt-dlp`. Only clip things you're allowed to use; downloading from
-YouTube may be against its terms.
+Then drag across the waveform to select the moment, adjust the handles, use **Zoom In**
+for precision, and press **Play Selection** (P) to check it. **Save** adds it to the
+library. If you started from a key (**Make a New Sound for This Key…**), it also goes on
+that key. **Re-clip in Sound Editor…** on a sound replaces its audio.
+
+Clips are saved as WAV with short fades so they don't click. By default they're evened
+out in volume, and for videos a frame becomes the key image. Downloads are temporary,
+and files macOS can't play (ogg, webm, opus) are converted with `ffmpeg`. YouTube and
+other video sites need `yt-dlp` (`brew install yt-dlp`). Only clip sounds you're
+allowed to use; some sites' terms forbid downloading.
+
+### Audio
+
+Choose which device Zoom hears, your mic and where you hear sounds yourself, and set
+the volumes and key brightness.
 
 ## Using it
 
@@ -166,8 +179,9 @@ same protocol and are included, but they're untested.
 swift build -c release
 .build/release/Soundboard --devices        # list audio devices
 .build/release/Soundboard --preview out/   # render keys to PNGs
-open build/Soundboard.app --args --settings          # open straight into the settings window
-open build/Soundboard.app --args --clip <file|link>  # open the clip editor
+open build/Soundboard.app --args --settings          # open straight into Sounds & Keys
+open build/Soundboard.app --args --audio             # open the Audio tab
+open build/Soundboard.app --args --clip <file|link>  # open the Sound Editor with a file or link
 SOUNDBOARD_DEBUG=1 .build/release/Soundboard   # log raw key reports
 ```
 
@@ -178,6 +192,7 @@ SOUNDBOARD_DEBUG=1 .build/release/Soundboard   # log raw key reports
 | `RingBuffer.swift` | Lock-free hand-off of mic audio between two device clocks |
 | `KeyRenderer.swift` | Draws keys and the Neo info screen |
 | `AppController.swift` | Menu bar, config loading, key → action wiring |
-| `UI/SettingsView.swift` | Key customisation window |
-| `UI/ClipEditor.swift` | Waveform clip selection and export |
-| `Fetcher.swift`, `SoundboardFetch/` | YouTube download helper (the only networked part) |
+| `UI/MainWindow.swift` | The single window: tabs and status strip |
+| `UI/SettingsView.swift` | Sounds & Keys tab: library, pad, inspector |
+| `UI/ClipEditor.swift` | Sound Editor tab: sources, waveform trimming, export |
+| `Fetcher.swift`, `SoundboardFetch/` | Download helper for YouTube and websites (the only networked part) |
