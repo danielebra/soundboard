@@ -24,6 +24,14 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
     private var reloadWork: DispatchWorkItem?
     private var watchers: [DispatchSourceFileSystemObject] = []
 
+    private var windows: Windows!
+
+    /// Key grid of the connected deck (Neo layout when none is plugged in).
+    var keyLayout: (keys: Int, columns: Int) {
+        guard let model = decks.deck?.model else { return (8, 4) }
+        return (model.keyCount, model.columns)
+    }
+
     private var micAllowed: Bool { AVCaptureDevice.authorizationStatus(for: .audio) == .authorized }
 
     // MARK: Lifecycle
@@ -34,6 +42,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
         let menu = NSMenu()
         menu.delegate = self
         statusItem.menu = menu
+
+        windows = Windows(app: self)
+        onConfigChange = { [weak self] config in self?.windows?.configChanged(config) }
 
         router.onPlaybackChange = { [weak self] key, playing in self?.playbackChanged(key, playing) }
         router.onNeedsRebuild = { [weak self] in self?.scheduleRebuild() }
@@ -293,6 +304,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
         if broken > 0 { info("⚠︎ \(broken) sound file\(broken == 1 ? "" : "s") couldn't be loaded") }
 
         menu.addItem(.separator())
+        action("Configure Keys…", #selector(showSettings), key: ",")
+        action("New Sound from YouTube…", #selector(newClip), key: "n")
         action("Stop All Sounds", #selector(stopAll), key: ".")
         action("Send Microphone Through", #selector(toggleMic), on: config.micPassthrough)
         action("Hear Sounds Myself", #selector(toggleMonitor), on: config.monitor)
@@ -309,6 +322,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
         menu.addItem(.separator())
         action("Quit Soundboard", #selector(quit), key: "q")
     }
+
+    @objc func showSettings() { windows.showSettings(select: page) }
+
+    @objc private func newClip() { windows.showClipEditor() }
 
     @objc private func stopAll() { router.stopAll() }
 
