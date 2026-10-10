@@ -147,11 +147,9 @@ enum KeyRenderer {
     private static func headerLine(_ title: String, info: String, infoColor: NSColor, symbol: String? = nil,
                                    in rect: CGRect) {
         var right = rect.maxX
-        let config = NSImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
-            .applying(NSImage.SymbolConfiguration(paletteColors: [NSColor(cgColor: activeColor)!]))
-        if let symbol, let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?.withSymbolConfiguration(config) {
-            let size = image.size
-            image.draw(in: CGRect(x: right - size.width, y: rect.midY - size.height / 2, width: size.width, height: size.height))
+        if let symbol, let (image, size) = symbolImage(symbol) {
+            NSGraphicsContext.current?.cgContext.draw(
+                image, in: CGRect(x: right - size.width, y: rect.midY - size.height / 2, width: size.width, height: size.height))
             right -= size.width + 6
         }
         let infoAttributes: [NSAttributedString.Key: Any] = [
@@ -166,6 +164,22 @@ enum KeyRenderer {
                                height: rect.height)
         (title as NSString).draw(with: titleRect, options: [.truncatesLastVisibleLine, .usesLineFragmentOrigin], attributes: [
             .font: NSFont.systemFont(ofSize: 13, weight: .bold), .foregroundColor: NSColor.white, .paragraphStyle: paragraph])
+    }
+
+    /// Header symbols, rasterized once: looking one up and drawing it cost more than the rest
+    /// of a screen frame. Main thread only, like the screen.
+    private static var symbols: [String: (CGImage, CGSize)] = [:]
+
+    private static func symbolImage(_ name: String) -> (CGImage, CGSize)? {
+        if let cached = symbols[name] { return cached }
+        let config = NSImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
+            .applying(NSImage.SymbolConfiguration(paletteColors: [NSColor(cgColor: activeColor)!]))
+        guard let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(config)
+        else { return nil }
+        var rect = CGRect(origin: .zero, size: image.size)
+        guard let cgImage = image.cgImage(forProposedRect: &rect, context: nil, hints: nil) else { return nil }
+        symbols[name] = (cgImage, image.size)
+        return (cgImage, image.size)
     }
 
     /// JPEG for the device. Stream Decks mount their panels upside down, so rotate 180°.
