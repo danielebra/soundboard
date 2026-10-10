@@ -3,12 +3,15 @@ import AVFoundation
 import ServiceManagement
 
 final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, StreamDeckDelegate {
-    private var config = Config()
+    private(set) var config = Config()
     private var configError: String?
-    private var sounds: [String: AVAudioPCMBuffer] = [:]
-    private var soundErrors: [String: String] = [:]
-    private var icons: [String: CGImage] = [:]
+    let assets = AssetCache()
     private var keyCache: [String: Data] = [:]
+    /// What we last wrote to config.json, so our own saves don't trigger a reload.
+    private var lastWritten: Data?
+    private var hasLoaded = false
+    /// Called after the config changes (from disk or the settings window).
+    var onConfigChange: ((Config) -> Void)?
 
     private var page = 0
     private var nowPlaying: [String] = []
@@ -62,36 +65,58 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
     // MARK: Config
 
     private func reloadConfig() {
+        let data: Data
         do {
             try Paths.ensureExists()
-            config = try Config.load()
+            data = try Data(contentsOf: Paths.config)
+            if hasLoaded, data == lastWritten { return }
+            let loaded = try JSONDecoder().decode(Config.self, from: data)
             configError = nil
+            apply(loaded)
         } catch {
             configError = "config.json: \(error.localizedDescription)"
             NSLog("Soundboard: %@", "\(error)")
-            if sounds.isEmpty { config = Config() } else { return } // keep running with the last good config
+            if !hasLoaded { apply(Config()) } // otherwise keep running with the last good config
         }
+    }
 
-        sounds.removeAll()
-        soundErrors.removeAll()
-        icons.removeAll()
-        keyCache.removeAll()
-        for button in config.pages.joined().compactMap({ $0 }) {
-            if let path = button.sound, sounds[path] == nil, soundErrors[path] == nil {
-                do { sounds[path] = try loadSound(Paths.resolve(path, in: Paths.sounds)) } catch {
-                    soundErrors[path] = error.localizedDescription
-                    NSLog("Soundboard: can't load sound %@: %@", path, error.localizedDescription)
-                }
-            }
-            if let path = button.image, icons[path] == nil,
-               let image = KeyRenderer.loadImage(Paths.resolve(path, in: Paths.icons)) {
-                icons[path] = image
-            }
+    /// Saves to config.json and applies immediately.
+    func save(_ newConfig: Config) {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .withoutEscapingSlashes]
+        do {
+            let data = try encoder.encode(newConfig)
+            try data.write(to: Paths.config, options: .atomic)
+            lastWritten = data
+            configError = nil
+        } catch {
+            NSLog("Soundboard: saving config failed: %@", error.localizedDescription)
         }
+        apply(newConfig)
+    }
+
+    private func apply(_ newConfig: Config) {
+        let old = config
+        config = newConfig
+        let routingChanged = !hasLoaded
+            || old.outputDevice != newConfig.outputDevice || old.micDevice != newConfig.micDevice
+            || old.micPassthrough != newConfig.micPassthrough || old.monitorDevice != newConfig.monitorDevice
+            || old.monitor != newConfig.monitor
+        hasLoaded = true
+
+        for button in config.pages.joined().compactMap({ $0 }) {
+            if let path = button.sound { _ = assets.sound(path) }
+        }
+        keyCache.removeAll()
         page = min(page, max(0, config.pages.count - 1))
-        rebuildAudio()
+        if routingChanged {
+            rebuildAudio()
+        } else {
+            router.setVolumes(config)
+        }
         decks.deck?.setBrightness(config.brightness)
         redrawDeck()
+        onConfigChange?(config)
     }
 
     /// Editors either rewrite the file in place or replace it, so watch both the file and its folder.
@@ -171,7 +196,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
             censorKey = pressed ? key : nil
             redraw(key: key)
         case nil:
-            guard pressed, let path = button.sound, let sound = sounds[path] else { return }
+            guard pressed, let path = button.sound, case let .success(sound) = assets.sound(path) else { return }
             router.play(key: key, sound: sound, volume: button.volume ?? 1, mode: button.mode ?? .toggle,
                         stopOthers: config.stopOthers)
         }
@@ -193,13 +218,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
     private func isActive(_ key: String) -> Bool { router.isPlaying(key) || censorKey == key }
 
     func renderKey(page: Int, index: Int, size: Int) -> CGImage {
-        let button = button(page: page, index: index)
-        let key = Self.key(page, index)
-        let missingSound = button?.action == nil && button?.sound != nil && sounds[button!.sound!] == nil
-        return KeyRenderer.key(size: size, label: button?.label,
-                               image: button?.image.flatMap { icons[$0] },
-                               background: button == nil ? CGColor(gray: 0, alpha: 1) : KeyRenderer.color(hex: button?.color),
-                               active: isActive(key), warning: missingSound)
+        assets.render(button(page: page, index: index), size: size, active: isActive(Self.key(page, index)))
     }
 
     private func redrawDeck() {
@@ -269,7 +288,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
         }
         if let monitor = status.monitor { info("✓ You hear it on \(monitor)") }
         if let configError { info("✗ \(configError)") }
-        let broken = soundErrors.count
+        let broken = Set(config.pages.joined().compactMap { $0?.action == nil ? $0?.sound : nil })
+            .filter { if case .failure = assets.sound($0) { return true } else { return false } }.count
         if broken > 0 { info("⚠︎ \(broken) sound file\(broken == 1 ? "" : "s") couldn't be loaded") }
 
         menu.addItem(.separator())
@@ -293,14 +313,16 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
     @objc private func stopAll() { router.stopAll() }
 
     @objc private func toggleMic() {
-        config.micPassthrough.toggle()
+        var updated = config
+        updated.micPassthrough.toggle()
+        save(updated)
         requestMicIfNeeded()
-        rebuildAudio()
     }
 
     @objc private func toggleMonitor() {
-        config.monitor.toggle()
-        rebuildAudio()
+        var updated = config
+        updated.monitor.toggle()
+        save(updated)
     }
 
     @objc private func openMicSettings() {
@@ -315,6 +337,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
     }
 
     @objc private func reload() {
+        lastWritten = nil
         reloadConfig()
         watchConfig()
     }

@@ -156,6 +156,8 @@ final class AudioRouter {
     private var mic: MicCapture?
     private let realtime = RealtimeState()
     private var observers: [NSObjectProtocol] = []
+    private var micNode: AVAudioSourceNode?
+    private var monitorTone: AVAudioSourceNode?
 
     private var voiceOwner: [String?]
     private var voiceToken: [Int]
@@ -224,6 +226,7 @@ final class AudioRouter {
                 }
                 voice.volume = config.micVolume
                 bus.add(voice, format: format)
+                micNode = voice
                 broadcast = bus
                 status.output = device.name
             } catch {
@@ -257,6 +260,7 @@ final class AudioRouter {
                     }
                     tone.volume = config.monitorVolume
                     bus.add(tone, format: format)
+                    monitorTone = tone
                     monitor = bus
                     status.monitor = device.name
                 } catch {
@@ -319,6 +323,8 @@ final class AudioRouter {
         mic = nil
         broadcast = nil
         monitor = nil
+        micNode = nil
+        monitorTone = nil
     }
 
     // MARK: Playback (main thread)
@@ -389,6 +395,14 @@ final class AudioRouter {
         guard voiceToken[v] == token, let key = voiceOwner[v] else { return }
         voiceOwner[v] = nil
         if !isPlaying(key) { onPlaybackChange?(key, false) }
+    }
+
+    /// Applies volume changes without restarting anything.
+    func setVolumes(_ config: Config) {
+        broadcast?.effects.outputVolume = config.soundVolume
+        micNode?.volume = config.micVolume
+        monitor?.effects.outputVolume = config.monitorVolume
+        monitorTone?.volume = config.monitorVolume
     }
 
     func setCensor(_ on: Bool) {
