@@ -92,6 +92,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
         if CommandLine.arguments.contains("--settings") { showSettings() }
         if CommandLine.arguments.contains("--audio") { mainWindow.show(.audio) }
         if CommandLine.arguments.contains("--app-settings") { mainWindow.show(.settings) }
+        if CommandLine.arguments.contains("--sync") { mainWindow.show(.sync) }
         if CommandLine.arguments.contains("--palette") { palette.show(on: nil, corner: config.hotCorner, stays: true) }
         if let i = CommandLine.arguments.firstIndex(of: "--clip") {
             // `--clip <file or link>` opens the clip editor with it.

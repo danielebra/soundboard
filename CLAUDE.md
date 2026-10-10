@@ -18,6 +18,7 @@ swift build -c release                 # both products
 open build/Soundboard.app --args --settings            # open the window (Sounds & Keys)
 open build/Soundboard.app --args --audio               # … on the Audio tab
 open build/Soundboard.app --args --app-settings        # … on the Settings tab
+open build/Soundboard.app --args --sync                # … on the Sync tab
 open build/Soundboard.app --args --clip <file|link>    # … Sound Editor with a file or link
 open build/Soundboard.app --args --settings --snapshot 3   # saves the window as snapshot.png in the
                                                            # Soundboard folder after 3s (see Testing)
