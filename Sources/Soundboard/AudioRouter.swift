@@ -277,6 +277,35 @@ private final class MicCapture {
     var rateChanged: Bool { engine.inputNode.outputFormat(forBus: 0).sampleRate != sampleRate }
 }
 
+/// Opens the mic off the setup queue and gives up after `timeout`. A USB mic that went away
+/// overnight can block the CoreAudio call forever, which would otherwise stall the headphones
+/// and the virtual device behind it. A mic that opens after we gave up is stopped and dropped.
+private func openMic(device: AudioDeviceID, taps: TapState, timeout: TimeInterval = 5) throws -> MicCapture {
+    let lock = NSLock()
+    var result: Result<MicCapture, Error>?
+    var abandoned = false
+    let done = DispatchSemaphore(value: 0)
+    DispatchQueue.global(qos: .userInitiated).async {
+        let made = Result { try MicCapture(device: device, taps: taps) }
+        lock.lock()
+        let late = abandoned
+        if !late { result = made }
+        lock.unlock()
+        if late, case .success(let mic) = made { mic.engine.stop() }
+        done.signal()
+    }
+    if done.wait(timeout: .now() + timeout) == .timedOut {
+        lock.lock()
+        let missed = result == nil
+        if missed { abandoned = true }
+        lock.unlock()
+        if missed { throw AudioError.message("didn't respond — unplug and replug it") }
+    }
+    lock.lock()
+    defer { lock.unlock() }
+    return try result!.get()
+}
+
 /// Routes sounds (and your microphone) to the virtual device Zoom listens to, and
 /// mirrors the sounds to your own speakers/headphones.
 final class AudioRouter {
@@ -491,7 +520,7 @@ final class AudioRouter {
                 } else {
                     do {
                         // Started by `updateEngines` once something needs it.
-                        let mic = try MicCapture(device: device.id, taps: taps)
+                        let mic = try openMic(device: device.id, taps: taps)
                         built.mic = mic
                         built.status.mic = device.name
                     } catch {

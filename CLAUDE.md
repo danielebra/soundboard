@@ -119,6 +119,9 @@ sandbox container: `Paths.home` uses `getpwuid`, and the entitlements grant a
 - **Setup runs in two stages** on `setupQueue`: `buildLocal` (mic + monitor) is installed first,
   then `buildBroadcast` (the output device). A hung BlackHole therefore only blocks the output;
   the input meter, monitor and input test still work. `install` merges each stage.
+- **A hung mic blocks everything behind it.** Overnight the USB mic's `MicCapture.init` blocked in a HAL
+  call forever, and since `buildLocal` runs before `buildBroadcast` on one queue, no sound reached
+  the headphones or BlackHole. The mic now opens through `openMic` with a 5 s timeout (shown as a mic problem).
 - **Engines run on demand.** All three engines are built but not started. `Demand` decides
   which run: `.listener` (another app reads from the output device; see `AudioListeners`) and
   `.audioTab` run everything; `.playback` (a sound played in the last 30 s) runs only the monitor.
