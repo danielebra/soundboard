@@ -122,6 +122,10 @@ sandbox container: `Paths.home` uses `getpwuid`, and the entitlements grant a
   ~56 ms latency at any mic rate (the dry path is delay-aligned, so partial strength doesn't comb),
   zero when bypassed, ~50–70 dB off broadband noise, ~1 dB off speech. The censor bleep is a
   separate node on each bus, because the isolation would remove a bleep mixed into the mic.
+- **Taps ignore `bufferSize`**: they deliver 4800 frames (100 ms) at a time, 10 per second.
+  Anything faster (the deck's 20 fps input graph) has to split buffers into chunks
+  (`TapState.addChunks`) rather than poll the latest level, or alternate frames see no update.
+  The graph taps both sides of the noise removal on the output engine so the chunks line up.
 - Never call `AVAudioPlayerNode.play()` on a stopped engine (it raises an exception); use `runningBuses`.
 
 ## Stream Deck (Neo) protocol
