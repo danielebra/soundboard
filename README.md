@@ -112,6 +112,7 @@ soon as you save.
 
 ```jsonc
 {
+  "version": 2,
   "outputDevice": "BlackHole 2ch",       // what Zoom listens to
   "micDevice": "fifine Microphone",      // null = macOS default input
   "micPassthrough": true,                // mix your mic into the output
@@ -122,11 +123,15 @@ soon as you save.
   "soundVolume": 0.8,                    // sound level that Zoom hears
   "stopOthers": true,                    // a toggle sound stops other toggle sounds
   "brightness": 70,
+  "library": [                           // every sound you've added, on the pad or not
+    { "id": "airhorn", "name": "Airhorn", "file": "airhorn.mp3", "label": "Airhorn", "color": "#dc2626" },
+    { "id": "meow", "name": "Meow", "file": "meow.wav", "image": "cat.png", "volume": 0.6, "mode": "overlay" }
+  ],
   "pages": [
     [                                    // keys left→right, top→bottom; null = blank
-      { "label": "Airhorn", "sound": "airhorn.mp3", "color": "#dc2626" },
-      { "image": "cat.png", "sound": "meow.wav", "name": "Meow", "volume": 0.6, "mode": "overlay" },
-      { "label": "STOP", "action": "stop" },
+      { "sound": "airhorn" },
+      { "sound": "meow" },
+      { "label": "STOP", "action": "stop", "color": "#dc2626" },
       { "label": "BLEEP", "action": "censor" },
       null
     ]
@@ -134,14 +139,18 @@ soon as you save.
 }
 ```
 
-- `sound` is a file in `sounds/`, or an absolute or `~/` path. Supported formats are
-  wav, mp3, m4a, aiff, caf and flac. Ogg isn't supported, so convert it with
-  `ffmpeg -i in.ogg out.wav`.
-- `image` is a file in `icons/` (png, jpg, webp or gif), cropped to fill the key.
-- `label` is drawn on the key. `name` is shown on the Neo's screen while the sound plays.
-- `color` is the key's background colour when it has no image.
-- `mode` is `"toggle"` (the default: tap to start, tap again to stop) or `"overlay"`
-  (each tap layers another copy, and the sound is never cut off by other sounds).
+- **Library sounds:**
+  - `file` is in `sounds/`, or an absolute or `~/` path. Supported formats are wav, mp3,
+    m4a, aiff, caf and flac. Ogg isn't supported, so convert it with
+    `ffmpeg -i in.ogg out.wav`.
+  - `image` is in `icons/` (png, jpg, webp or gif), cropped to fill the key.
+  - `label` is drawn on the key. `name` shows in the library and on the Neo's screen.
+  - `color` is the key's background colour when it has no image.
+  - `mode` is `"toggle"` (the default: tap to start, tap again to stop) or `"overlay"`
+    (each tap layers another copy, and other sounds never cut it off).
+- **Keys** point at a library sound by `id`, or are `stop` / `censor` keys with their own
+  `label`, `image` and `color`. Taking a sound off a key never deletes it from the library.
+- **Audio files dropped into `sounds/`** are added to the library automatically.
 
 Use **headphones** for monitoring. If the sounds come out of your speakers, your mic
 picks them up again and Zoom hears them twice.
