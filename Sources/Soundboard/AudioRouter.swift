@@ -82,6 +82,75 @@ private final class RealtimeState: @unchecked Sendable {
     let censor = Atomic<Bool>(false)
 }
 
+/// Peak of the loudest channel in a tap buffer.
+private func peak(_ buffer: AVAudioPCMBuffer) -> Float {
+    guard let channels = buffer.floatChannelData else { return 0 }
+    var level: Float = 0
+    for c in 0..<Int(buffer.format.channelCount) {
+        for i in 0..<Int(buffer.frameLength) { level = max(level, abs(channels[c][i])) }
+    }
+    return level
+}
+
+/// A few seconds of raw microphone, for trying settings on.
+struct MicClip {
+    var samples: [Float]
+    var sampleRate: Double
+}
+
+/// Meter levels and the mic test recording. Fed by engine taps, which run on an ordinary
+/// background thread, so a lock is fine here.
+private final class TapState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var levels = AudioRouter.Levels()
+    private var recording: [Float]?
+    private var recordTarget = 0
+    private var recordRate = 0.0
+    private var finished: MicClip?
+
+    func set(_ keyPath: WritableKeyPath<AudioRouter.Levels, Float>, _ value: Float) {
+        lock.withLock { levels[keyPath: keyPath] = value }
+    }
+
+    var current: AudioRouter.Levels { lock.withLock { levels } }
+
+    func reset() { lock.withLock { levels = AudioRouter.Levels() } }
+
+    func startRecording(frames: Int) {
+        lock.withLock { recording = []; recordTarget = frames; finished = nil }
+    }
+
+    func cancelRecording() { lock.withLock { recording = nil } }
+
+    /// 0…1 while recording, nil otherwise.
+    var recordProgress: Double? {
+        lock.withLock { recording.map { recordTarget > 0 ? Double($0.count) / Double(recordTarget) : 0 } }
+    }
+
+    func takeFinished() -> MicClip? {
+        lock.withLock { defer { finished = nil }; return finished }
+    }
+
+    /// Mixes the mic down to mono (like the ring buffer) and appends it while recording.
+    func record(_ buffer: AVAudioPCMBuffer) {
+        lock.withLock {
+            guard recording != nil, let channels = buffer.floatChannelData else { return }
+            let count = Int(buffer.format.channelCount), n = min(Int(buffer.frameLength), recordTarget - recording!.count)
+            let scale = 1 / Float(count)
+            for i in 0..<n {
+                var sum: Float = 0
+                for c in 0..<count { sum += channels[c][i] }
+                recording!.append(sum * scale)
+            }
+            recordRate = buffer.format.sampleRate
+            if recording!.count >= recordTarget {
+                finished = MicClip(samples: recording!, sampleRate: recordRate)
+                recording = nil
+            }
+        }
+    }
+}
+
 /// One AVAudioEngine bound to one output device, with a fixed pool of player voices.
 private final class OutputBus {
     let engine = AVAudioEngine()
@@ -130,6 +199,14 @@ private final class OutputBus {
         return tone
     }
 
+    /// Plays mic test recordings; skips the sound volume so you hear the mic as Zoom does.
+    func addPreviewPlayer() -> AVAudioPlayerNode {
+        let player = AVAudioPlayerNode()
+        engine.attach(player)
+        engine.connect(player, to: engine.mainMixerNode, format: mixFormat)
+        return player
+    }
+
     func start() throws {
         engine.prepare()
         try engine.start()
@@ -142,12 +219,12 @@ private final class MicCapture {
     let ring: RingBuffer
     let sampleRate: Double
 
-    init(device: AudioDeviceID) throws {
+    init(device: AudioDeviceID, taps: TapState) throws {
         let input = engine.inputNode
         try select(device: device, on: input)
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else {
-            throw AudioError.message("microphone reported no channels")
+            throw AudioError.message("input device reported no channels")
         }
         sampleRate = format.sampleRate
         let ring = RingBuffer(sampleRate: format.sampleRate)
@@ -158,6 +235,10 @@ private final class MicCapture {
         }
         engine.attach(sink)
         engine.connect(input, to: sink, format: format)
+        input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
+            taps.set(\.mic, peak(buffer))
+            taps.record(buffer)
+        }
     }
 
     func start() throws {
@@ -179,6 +260,16 @@ final class AudioRouter {
         var micProblem: String?
     }
 
+    /// Peak levels, 0…1.
+    struct Levels {
+        /// The input device as it arrives.
+        var mic: Float = 0
+        /// The input after processing (noise removal), before the mix.
+        var cleaned: Float = 0
+        /// The output mix: processed input plus sounds.
+        var output: Float = 0
+    }
+
     private(set) var status = Status()
     /// (sound key, isPlaying) — always on the main thread.
     var onPlaybackChange: ((String, Bool) -> Void)?
@@ -192,6 +283,9 @@ final class AudioRouter {
     private var monitor: OutputBus?
     private var mic: MicCapture?
     private let realtime = RealtimeState()
+    private let taps = TapState()
+    private var previewPlayer: AVAudioPlayerNode?
+    private var previewToken = 0
     private var observers: [NSObjectProtocol] = []
     private var micNode: AVAudioSourceNode?
     private var micFilter: AVAudioUnitEffect?
@@ -208,7 +302,10 @@ final class AudioRouter {
         var micFilter: AVAudioUnitEffect?
         var broadcastTone: AVAudioSourceNode?
         var monitorTone: AVAudioSourceNode?
+        var previewPlayer: AVAudioPlayerNode?
         var status = Status()
+        /// Built by `buildBroadcast` (virtual device) rather than `buildLocal` (mic, headphones).
+        var isBroadcastStage = false
     }
 
     private var voiceOwner: [String?]
@@ -233,34 +330,56 @@ final class AudioRouter {
         generation += 1
         let generation = self.generation
         status = Status(connecting: config.outputDevice)
-        let realtime = self.realtime, voiceCount = self.voiceCount
+        let realtime = self.realtime, taps = self.taps, voiceCount = self.voiceCount
         setupQueue.async { [weak self] in
-            let built = Self.build(config: config, micAllowed: micAllowed, realtime: realtime, voiceCount: voiceCount)
-            DispatchQueue.main.async {
-                guard let self, generation == self.generation else {
-                    // A newer rebuild started while this one was stuck; discard it.
-                    self?.setupQueue.async { [built.broadcast?.engine, built.monitor?.engine, built.mic?.engine].forEach { $0?.stop() } }
-                    return
-                }
-                self.install(built)
-            }
+            // Mic and headphones first, so they work even if the virtual device's driver hangs.
+            let local = Self.buildLocal(config: config, micAllowed: micAllowed, realtime: realtime, taps: taps,
+                                        voiceCount: voiceCount)
+            self?.deliver(local, generation: generation)
+            let broadcast = Self.buildBroadcast(config: config, mic: local.mic, realtime: realtime, taps: taps,
+                                                voiceCount: voiceCount)
+            self?.deliver(broadcast, generation: generation)
         }
     }
 
+    /// Hands a finished setup stage to the main thread, or stops it if a newer rebuild started.
+    private func deliver(_ built: Built, generation: Int) {
+        DispatchQueue.main.async {
+            guard generation == self.generation else {
+                self.setupQueue.async { [built.broadcast?.engine, built.monitor?.engine, built.mic?.engine].forEach { $0?.stop() } }
+                return
+            }
+            self.install(built)
+        }
+    }
+
+    /// Installs one setup stage: the mic and headphones, or the virtual device.
     private func install(_ built: Built) {
-        broadcast = built.broadcast
-        monitor = built.monitor
-        mic = built.mic
-        micNode = built.micNode
-        micFilter = built.micFilter
-        broadcastTone = built.broadcastTone
-        monitorTone = built.monitorTone
-        status = built.status
+        if let bus = built.broadcast {
+            broadcast = bus
+            micNode = built.micNode
+            micFilter = built.micFilter
+            broadcastTone = built.broadcastTone
+        }
+        if built.isBroadcastStage {
+            status.connecting = nil
+            status.output = built.status.output
+            status.outputProblem = built.status.outputProblem
+        } else {
+            mic = built.mic
+            monitor = built.monitor
+            monitorTone = built.monitorTone
+            previewPlayer = built.previewPlayer
+            status.mic = built.status.mic
+            status.micProblem = built.status.micProblem
+            status.monitor = built.status.monitor
+            taps.reset()
+        }
 
         // A device change can stop an engine; rebuild only then. Engines also post this
         // notification harmlessly right after we move them off the default device —
         // rebuilding on those would restart the mic forever.
-        let engines = [broadcast?.engine, monitor?.engine, mic?.engine].compactMap { $0 }
+        let engines = [built.broadcast?.engine, built.monitor?.engine, built.mic?.engine].compactMap { $0 }
         for engine in engines {
             observers.append(NotificationCenter.default.addObserver(
                 forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
@@ -272,9 +391,10 @@ final class AudioRouter {
         onStatusChange?()
     }
 
-    /// Everything that talks to audio devices. Runs on `setupQueue` because a stuck driver
-    /// can block these calls indefinitely.
-    private static func build(config: Config, micAllowed: Bool, realtime: RealtimeState, voiceCount: Int) -> Built {
+    /// Everything that talks to audio devices runs on `setupQueue`, because a stuck driver
+    /// can block these calls indefinitely. This stage opens your mic and headphones.
+    private static func buildLocal(config: Config, micAllowed: Bool, realtime: RealtimeState, taps: TapState,
+                                   voiceCount: Int) -> Built {
         var built = Built()
 
         // Microphone (optional).
@@ -285,68 +405,37 @@ final class AudioRouter {
                 built.status.micProblem = "Microphone access not granted"
             } else if let device {
                 if device.name.localizedCaseInsensitiveContains(config.outputDevice) {
-                    built.status.micProblem = "Mic is set to the virtual device — pick your real mic"
+                    built.status.micProblem = "Input is the same device as the output — pick a different input"
                 } else {
                     do {
-                        built.mic = try MicCapture(device: device.id)
+                        let mic = try MicCapture(device: device.id, taps: taps)
+                        try mic.start()
+                        built.mic = mic
                         built.status.mic = device.name
                     } catch {
                         built.status.micProblem = "\(device.name): \(error.localizedDescription)"
                     }
                 }
             } else {
-                built.status.micProblem = "Mic “\(config.micDevice ?? "default")” not found"
+                built.status.micProblem = "Input “\(config.micDevice ?? "default")” not found"
             }
-        }
-
-        // Virtual device Zoom listens to.
-        if let device = AudioDevices.find(config.outputDevice, output: true) {
-            do {
-                let bus = try OutputBus(device: device.id, voiceCount: voiceCount)
-                bus.effects.outputVolume = config.soundVolume
-                if let mic = built.mic {
-                    let format = AVAudioFormat(standardFormatWithSampleRate: mic.sampleRate, channels: 1)!
-                    let ring = mic.ring
-                    let state = realtime
-                    let voice = AVAudioSourceNode(format: format) { _, _, frames, list in
-                        let out = UnsafeMutableAudioBufferListPointer(list)
-                        guard let data = out[0].mData?.assumingMemoryBound(to: Float.self) else { return noErr }
-                        let n = Int(frames)
-                        ring.read(into: data, count: n) // keep draining while censored
-                        if state.censor.load(ordering: .relaxed) { data.update(repeating: 0, count: n) }
-                        return noErr
-                    }
-                    voice.volume = config.micVolume
-                    // Always in the graph so it can be switched without restarting the mic.
-                    let filter = makeVoiceIsolation()
-                    configure(filter, config)
-                    bus.add(voice, format: format, through: filter)
-                    built.micNode = voice
-                    built.micFilter = filter
-                }
-                let tone = bus.addCensorTone(realtime)
-                tone.volume = config.micVolume
-                built.broadcastTone = tone
-                built.broadcast = bus
-                built.status.output = device.name
-            } catch {
-                built.status.outputProblem = "\(device.name): \(error.localizedDescription)"
-            }
-        } else {
-            built.status.outputProblem = "“\(config.outputDevice)” not found — is BlackHole installed?"
         }
 
         // What you hear.
         if config.monitor {
             let device = config.monitorDevice.flatMap { AudioDevices.find($0, output: true) }
                 ?? (config.monitorDevice == nil ? AudioDevices.defaultDevice(output: true) : nil)
-            if let device, device.name != built.status.output {
+            let output = AudioDevices.find(config.outputDevice, output: true)
+            if let device, device.id != output?.id {
                 do {
                     let bus = try OutputBus(device: device.id, voiceCount: voiceCount)
                     bus.effects.outputVolume = config.monitorVolume
                     let tone = bus.addCensorTone(realtime)
                     tone.volume = config.monitorVolume
+                    let preview = bus.addPreviewPlayer()
+                    try bus.start()
                     built.monitorTone = tone
+                    built.previewPlayer = preview
                     built.monitor = bus
                     built.status.monitor = device.name
                 } catch {
@@ -354,28 +443,60 @@ final class AudioRouter {
                 }
             }
         }
+        return built
+    }
 
-        for (bus, label) in [(built.broadcast, "virtual device"), (built.monitor, "monitor")] {
-            guard let bus else { continue }
-            do { try bus.start() } catch {
-                NSLog("Soundboard: starting \(label) failed: \(error)")
-                if label == "virtual device" {
-                    built.status.outputProblem = "Could not start: \(error.localizedDescription)"
-                    built.broadcast = nil
-                } else {
-                    built.monitor = nil
-                    built.status.monitor = nil
+    /// Opens the virtual device Zoom listens to and feeds it the mic. This is the call that
+    /// hangs when BlackHole's driver is stuck.
+    private static func buildBroadcast(config: Config, mic: MicCapture?, realtime: RealtimeState, taps: TapState,
+                                       voiceCount: Int) -> Built {
+        var built = Built(isBroadcastStage: true)
+        guard let device = AudioDevices.find(config.outputDevice, output: true) else {
+            built.status.outputProblem = "“\(config.outputDevice)” not found — is BlackHole installed?"
+            return built
+        }
+        do {
+            let bus = try OutputBus(device: device.id, voiceCount: voiceCount)
+            bus.effects.outputVolume = config.soundVolume
+            if let mic {
+                let format = AVAudioFormat(standardFormatWithSampleRate: mic.sampleRate, channels: 1)!
+                let ring = mic.ring
+                let state = realtime
+                let voice = AVAudioSourceNode(format: format) { _, _, frames, list in
+                    let out = UnsafeMutableAudioBufferListPointer(list)
+                    guard let data = out[0].mData?.assumingMemoryBound(to: Float.self) else { return noErr }
+                    let n = Int(frames)
+                    ring.read(into: data, count: n) // keep draining while censored
+                    if state.censor.load(ordering: .relaxed) { data.update(repeating: 0, count: n) }
+                    return noErr
                 }
+                voice.volume = config.micVolume
+                // Always in the graph so it can be switched without restarting the mic.
+                let filter = makeVoiceIsolation()
+                configure(filter, config)
+                bus.add(voice, format: format, through: filter)
+                filter.installTap(onBus: 0, bufferSize: 1024, format: nil) { buffer, _ in
+                    taps.set(\.cleaned, peak(buffer))
+                }
+                built.micNode = voice
+                built.micFilter = filter
             }
-        }
-        if let mic = built.mic {
-            do { try mic.start() } catch {
-                built.status.micProblem = "Could not start mic: \(error.localizedDescription)"
-                built.status.mic = nil
-                built.mic = nil
+            let tone = bus.addCensorTone(realtime)
+            tone.volume = config.micVolume
+            built.broadcastTone = tone
+            bus.engine.mainMixerNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { buffer, _ in
+                taps.set(\.output, peak(buffer))
             }
+            try bus.start()
+            built.broadcast = bus
+            built.status.output = device.name
+        } catch {
+            NSLog("Soundboard: virtual device \(device.name): \(error)")
+            built.status.outputProblem = "\(device.name): \(error.localizedDescription)"
+            built.micNode = nil
+            built.micFilter = nil
+            built.broadcastTone = nil
         }
-
         return built
     }
 
@@ -397,6 +518,8 @@ final class AudioRouter {
         mic = nil
         broadcast = nil
         monitor = nil
+        taps.cancelRecording()
+        previewPlayer = nil
         micNode = nil
         micFilter = nil
         broadcastTone = nil
@@ -487,6 +610,95 @@ final class AudioRouter {
         filter.bypass = !config.noiseSuppression
         filter.auAudioUnit.parameterTree?.parameter(withAddress: AUParameterAddress(kAUSoundIsolationParam_WetDryMixPercent))?
             .value = config.noiseSuppressionStrength * 100
+    }
+
+    // MARK: Meters and mic test (main thread)
+
+    var levels: Levels { taps.current }
+
+    var canRecordTest: Bool { mic?.engine.isRunning == true }
+
+    var canPlayTest: Bool { previewPlayer != nil && monitor?.engine.isRunning == true }
+
+    func startTestRecording(seconds: Double) {
+        guard let mic else { return }
+        taps.startRecording(frames: Int(seconds * mic.sampleRate))
+    }
+
+    func cancelTestRecording() { taps.cancelRecording() }
+
+    /// 0…1 while recording, nil otherwise.
+    var testRecordProgress: Double? { taps.recordProgress }
+
+    /// The finished recording, once.
+    func takeTestRecording() -> MicClip? { taps.takeFinished() }
+
+    /// Plays `clip` on your headphones only, through the current mic volume and (when `cleaned`)
+    /// noise suppression — the same chain Zoom hears, so you can change settings and replay it.
+    func playTest(_ clip: MicClip, cleaned: Bool, config: Config, done: @escaping () -> Void) {
+        guard let player = previewPlayer, canPlayTest else { return done() }
+        previewToken += 1
+        let token = previewToken
+        player.stop()
+        DispatchQueue.global(qos: .userInitiated).async {
+            let buffer = try? Self.render(clip, cleaned: cleaned, config: config)
+            DispatchQueue.main.async { [weak self] in
+                guard let self, token == self.previewToken, let buffer, self.canPlayTest else { return done() }
+                player.scheduleBuffer(buffer, at: nil, options: [], completionCallbackType: .dataPlayedBack) { _ in
+                    DispatchQueue.main.async { if token == self.previewToken { done() } }
+                }
+                player.play()
+            }
+        }
+    }
+
+    func stopTest() {
+        previewToken += 1
+        previewPlayer?.stop()
+    }
+
+    /// Runs a recording through the live mic chain offline: mic volume, then voice isolation.
+    private static func render(_ clip: MicClip, cleaned: Bool, config: Config) throws -> AVAudioPCMBuffer {
+        let engine = AVAudioEngine()
+        let chunk: AVAudioFrameCount = 4096
+        try engine.enableManualRenderingMode(.offline, format: mixFormat, maximumFrameCount: chunk)
+        let format = AVAudioFormat(standardFormatWithSampleRate: clip.sampleRate, channels: 1)!
+        var position = 0
+        let samples = clip.samples
+        let source = AVAudioSourceNode(format: format) { _, _, frames, list in
+            guard let data = UnsafeMutableAudioBufferListPointer(list)[0].mData?.assumingMemoryBound(to: Float.self)
+            else { return noErr }
+            for i in 0..<Int(frames) { data[i] = position + i < samples.count ? samples[position + i] : 0 }
+            position += Int(frames)
+            return noErr
+        }
+        source.volume = config.micVolume
+        let filter = makeVoiceIsolation()
+        var settings = config
+        settings.noiseSuppression = cleaned && config.noiseSuppression
+        configure(filter, settings)
+        engine.attach(source)
+        engine.attach(filter)
+        engine.connect(source, to: filter, format: format)
+        engine.connect(filter, to: engine.mainMixerNode, format: format)
+        try engine.start()
+        defer { engine.stop() }
+
+        // A little extra for the isolation's ~56 ms latency.
+        let total = AVAudioFrameCount(Double(samples.count) / clip.sampleRate * mixFormat.sampleRate + 0.1 * mixFormat.sampleRate)
+        guard let output = AVAudioPCMBuffer(pcmFormat: mixFormat, frameCapacity: total),
+              let block = AVAudioPCMBuffer(pcmFormat: mixFormat, frameCapacity: chunk)
+        else { throw AudioError.message("out of memory") }
+        while output.frameLength < total {
+            let n = min(chunk, total - output.frameLength)
+            guard try engine.renderOffline(n, to: block) == .success else { break }
+            for c in 0..<Int(mixFormat.channelCount) {
+                (output.floatChannelData![c] + Int(output.frameLength))
+                    .update(from: block.floatChannelData![c], count: Int(block.frameLength))
+            }
+            output.frameLength += block.frameLength
+        }
+        return output
     }
 
     func setCensor(_ on: Bool) {

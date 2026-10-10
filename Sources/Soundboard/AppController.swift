@@ -17,7 +17,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
     private var nowPlaying: [String] = []
     private var censorKey: String?
 
-    private let router = AudioRouter()
+    let router = AudioRouter()
     private let decks = StreamDeckManager()
     private var statusItem: NSStatusItem!
     private let statusMenu = NSMenu()
@@ -305,8 +305,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
         let status = router.status
         let warning = configError != nil ? "config error"
             : status.connecting != nil ? "connecting audio…"
-            : status.outputProblem != nil ? "no virtual mic" : nil
-        let mic = status.mic != nil ? "mic on" : (config.micPassthrough ? "mic off" : nil)
+            : status.outputProblem != nil ? "no output" : nil
+        let mic = status.mic != nil ? "input on" : (config.micPassthrough ? "input off" : nil)
         subtitle = [subtitle, warning ?? mic].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
         let image = KeyRenderer.screen(width: screen.width, height: screen.height, title: title, subtitle: subtitle)
         deck.setScreenImage(KeyRenderer.jpeg(image))
@@ -343,12 +343,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
         if let device = status.connecting {
             info("⏳ Opening \(device)… (if this stays, the audio driver is stuck — restart your Mac)")
         } else {
-            info(status.output.map { "✓ Sending to \($0)" } ?? "✗ \(status.outputProblem ?? "No output")")
+            info(status.output.map { "✓ Output: \($0)" } ?? "✗ \(status.outputProblem ?? "No output")")
         }
-        if config.micPassthrough, status.connecting == nil {
-            info(status.mic.map { "✓ Mic: \($0)" } ?? "✗ \(status.micProblem ?? "Mic unavailable")")
+        if config.micPassthrough, status.mic != nil || status.micProblem != nil {
+            info(status.mic.map { "✓ Input: \($0)" } ?? "✗ \(status.micProblem ?? "Input unavailable")")
         }
-        if let monitor = status.monitor { info("✓ You hear it on \(monitor)") }
+        if let monitor = status.monitor { info("✓ Monitor: \(monitor)") }
         if let configError { info("✗ \(configError)") }
         let broken = config.library.filter { assets.isBroken($0.file) }.count
         if broken > 0 { info("⚠︎ \(broken) sound file\(broken == 1 ? "" : "s") couldn't be loaded") }
@@ -357,8 +357,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
         action("Open Soundboard…", #selector(showSettings), key: ",")
         action("New Sound…", #selector(newClip), key: "n")
         action("Stop All Sounds", #selector(stopAll), key: ".")
-        action("Send Microphone Through", #selector(toggleMic), on: config.micPassthrough)
-        action("Hear Sounds Myself", #selector(toggleMonitor), on: config.monitor)
+        action("Route Input to Output", #selector(toggleMic), on: config.micPassthrough)
+        action("Monitor Sounds", #selector(toggleMonitor), on: config.monitor)
         if status.micProblem == "Microphone access not granted" {
             action("Allow Microphone Access…", #selector(openMicSettings))
         }

@@ -769,7 +769,7 @@ private struct SoundFields: View {
                 Spacer()
                 Button("Preview", systemImage: "play.fill") { if let entry { model.preview(entry) } }
                     .labelStyle(.iconOnly)
-                    .help("Plays on this Mac only, not into Zoom")
+                    .help("Plays on this Mac only, not to the output")
             }
             HStack {
                 Button("Replace Audio…") {
@@ -832,86 +832,5 @@ private struct KeyCapFields: View {
     static func hex(_ color: Color) -> String? {
         guard let rgb = NSColor(color).usingColorSpace(.sRGB) else { return nil }
         return String(format: "#%02x%02x%02x", Int(rgb.redComponent * 255), Int(rgb.greenComponent * 255), Int(rgb.blueComponent * 255))
-    }
-}
-
-// MARK: - Audio
-
-struct AudioSettings: View {
-    @ObservedObject var model: SettingsModel
-
-    private func devicePicker(_ title: String, _ keyPath: WritableKeyPath<Config, String?>, output: Bool) -> some View {
-        Picker(title, selection: Binding {
-            model.config[keyPath: keyPath] ?? ""
-        } set: { value in
-            model.update { $0[keyPath: keyPath] = value.isEmpty ? nil : value }
-        }) {
-            Text("System default").tag("")
-            ForEach(model.devices.filter { output ? $0.outputChannels > 0 : $0.inputChannels > 0 }, id: \.id) {
-                Text($0.name).tag($0.name)
-            }
-        }
-    }
-
-    private func slider(_ title: String, _ keyPath: WritableKeyPath<Config, Float>) -> some View {
-        LabeledContent(title) {
-            Slider(value: Binding { Double(model.config[keyPath: keyPath]) } set: { value in
-                model.update { $0[keyPath: keyPath] = Float(value) }
-            }, in: 0...1)
-        }
-    }
-
-    var body: some View {
-        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
-            GridRow {
-                Picker("Zoom hears", selection: Binding { model.config.outputDevice } set: { value in
-                    model.update { $0.outputDevice = value }
-                }) {
-                    ForEach(model.devices.filter { $0.outputChannels > 0 }, id: \.id) { Text($0.name).tag($0.name) }
-                    if !model.devices.contains(where: { $0.name == model.config.outputDevice }) {
-                        Text("\(model.config.outputDevice) (missing)").tag(model.config.outputDevice)
-                    }
-                }
-                slider("Sounds", \.soundVolume)
-            }
-            GridRow {
-                devicePicker("Microphone", \.micDevice, output: false)
-                slider("Mic", \.micVolume)
-            }
-            GridRow {
-                Toggle("Remove background noise", isOn: Binding { model.config.noiseSuppression } set: { value in
-                    model.update { $0.noiseSuppression = value }
-                })
-                .help("Cleans up your mic before sounds are mixed in, so Zoom can use Original Sound without clipping effects")
-                slider("Strength", \.noiseSuppressionStrength)
-                    .disabled(!model.config.noiseSuppression)
-            }
-            GridRow {
-                devicePicker("You hear on", \.monitorDevice, output: true)
-                slider("Monitor", \.monitorVolume)
-            }
-            GridRow {
-                Toggle("Send microphone through", isOn: Binding { model.config.micPassthrough } set: { value in
-                    model.update { $0.micPassthrough = value }
-                })
-                Toggle("Hear sounds myself", isOn: Binding { model.config.monitor } set: { value in
-                    model.update { $0.monitor = value }
-                })
-            }
-            GridRow {
-                Toggle("New sound stops the previous one", isOn: Binding { model.config.stopOthers } set: { value in
-                    model.update { $0.stopOthers = value }
-                })
-                .help("Only applies to tap-to-start/stop sounds; overlays always layer")
-                LabeledContent("Brightness") {
-                    Slider(value: Binding { Double(model.config.brightness) } set: { value in
-                        model.update { $0.brightness = Int(value) }
-                    }, in: 10...100)
-                }
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            model.devices = AudioDevices.all()
-        }
     }
 }

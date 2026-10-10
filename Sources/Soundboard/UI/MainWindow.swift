@@ -34,9 +34,11 @@ final class MainModel: ObservableObject {
     @Published var status = AppStatus()
     let settings: SettingsModel
     let editor = ClipEditorModel()
+    let audio: AudioMonitor
 
-    init(settings: SettingsModel) {
+    init(settings: SettingsModel, router: AudioRouter) {
         self.settings = settings
+        audio = AudioMonitor(router: router)
     }
 
     var destinationText: String {
@@ -83,7 +85,7 @@ struct MainView: View {
                                        return { model.clipTarget = .library; model.editor.targetHasImage = false }
                                    }())
                 case .audio:
-                    AudioTab(model: model)
+                    AudioTab(settings: model.settings, monitor: model.audio, status: model.status)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -93,26 +95,6 @@ struct MainView: View {
         }
         .frame(minWidth: 1100, minHeight: 680)
         .background(Color(nsColor: .windowBackgroundColor))
-    }
-}
-
-private struct AudioTab: View {
-    @ObservedObject var model: MainModel
-
-    var body: some View {
-        Form {
-            Section("Routing and volume") {
-                AudioSettings(model: model.settings)
-                    .padding(.vertical, 6)
-            }
-            Section("How it fits together") {
-                Text("Sounds and your microphone are mixed into the virtual device, and Zoom uses that device as its microphone. In Zoom → Settings → Audio, choose **\(model.settings.config.outputDevice)** as the microphone and set background noise suppression to **Low**.")
-                Text("“You hear on” plays the sounds back to you. Use headphones so your mic doesn't pick them up a second time.")
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .formStyle(.grouped)
-        .frame(maxWidth: 820)
     }
 }
 
@@ -126,15 +108,15 @@ private struct StatusStrip: View {
             if let connecting = status.connecting {
                 item("Opening \(connecting)…", ok: nil, systemImage: "hourglass")
             } else {
-                item(status.output.map { "Zoom hears \($0)" } ?? (status.outputProblem ?? "No output"),
+                item(status.output.map { "Output: \($0)" } ?? (status.outputProblem ?? "No output"),
                      ok: status.output != nil, systemImage: "speaker.wave.2")
             }
             if status.micPassthrough {
-                item(status.mic.map { "Mic: \($0)" } ?? (status.micProblem ?? "Mic off"),
+                item(status.mic.map { "Input: \($0)" } ?? (status.micProblem ?? "Input off"),
                      ok: status.mic != nil, systemImage: "mic")
             }
             if let monitor = status.monitor {
-                item("You hear: \(monitor)", ok: true, systemImage: "headphones")
+                item("Monitor: \(monitor)", ok: true, systemImage: "headphones")
             }
             Spacer()
         }
@@ -225,7 +207,7 @@ final class MainWindow: NSObject, NSWindowDelegate {
         let layout = app.keyLayout
         let settings = SettingsModel(config: app.config, keyCount: layout.keys, columns: layout.columns,
                                      assets: app.assets) { [weak app] config in app?.save(config) }
-        let model = MainModel(settings: settings)
+        let model = MainModel(settings: settings, router: app.router)
         settings.openClipEditor = { [weak self] target, file in self?.showEditor(target: target, file: file) }
         model.editor.onSave = { [weak self, weak model] result in
             guard let self, let model else { return }
