@@ -8,6 +8,13 @@ struct ButtonConfig: Codable, Equatable {
         case censor
     }
 
+    enum Mode: String, Codable {
+        /// Tap to start, tap again to stop (default).
+        case toggle
+        /// Every tap plays another copy on top of whatever is playing.
+        case overlay
+    }
+
     var label: String?
     /// Shown on the Neo's screen while playing (defaults to `label`). Handy for image-only keys.
     var name: String?
@@ -19,6 +26,7 @@ struct ButtonConfig: Codable, Equatable {
     var color: String?
     /// 0.0 – 1.0, multiplied with `soundVolume`.
     var volume: Float?
+    var mode: Mode?
     var action: Action?
 }
 
@@ -34,7 +42,7 @@ struct Config: Codable {
     var monitor = true
     var monitorVolume: Float = 0.5
     var soundVolume: Float = 0.8
-    /// Starting a sound stops whatever else is playing.
+    /// Starting a toggle sound stops other toggle sounds (overlays keep playing).
     var stopOthers = true
     var brightness = 70
     /// Each page is a row-major list of keys (left→right, top→bottom). `null` = blank key.

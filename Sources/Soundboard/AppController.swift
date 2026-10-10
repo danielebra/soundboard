@@ -172,7 +172,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
             redraw(key: key)
         case nil:
             guard pressed, let path = button.sound, let sound = sounds[path] else { return }
-            router.play(key: key, sound: sound, volume: button.volume ?? 1, stopOthers: config.stopOthers)
+            router.play(key: key, sound: sound, volume: button.volume ?? 1, mode: button.mode ?? .toggle,
+                        stopOthers: config.stopOthers)
         }
     }
 

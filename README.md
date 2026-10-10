@@ -61,8 +61,10 @@ at the path the script prints.
 
 ## Using it
 
-- **Press a key** to play its sound. Press it again to stop. A green border shows
-  what's playing.
+- **Toggle keys** (the default): press to play, press again to stop.
+- **Overlay keys**: every press plays another copy on top of whatever is already
+  playing, so they work well for quick stings like an airhorn or a rimshot.
+- A green border shows what's playing.
 - **The two touch buttons under the Neo's screen** switch pages. The screen shows
   what's playing, the page, and whether your mic is live.
 - **A `censor` key** (hold it) mutes your mic and sends a bleep instead.
@@ -83,12 +85,12 @@ as you save.
   "monitor": true,
   "monitorVolume": 0.5,
   "soundVolume": 0.8,                    // sound level that Zoom hears
-  "stopOthers": true,                    // a new sound stops the previous one
+  "stopOthers": true,                    // a toggle sound stops other toggle sounds
   "brightness": 70,
   "pages": [
     [                                    // keys left→right, top→bottom; null = blank
       { "label": "Airhorn", "sound": "airhorn.mp3", "color": "#dc2626" },
-      { "image": "cat.png", "sound": "meow.wav", "name": "Meow", "volume": 0.6 },
+      { "image": "cat.png", "sound": "meow.wav", "name": "Meow", "volume": 0.6, "mode": "overlay" },
       { "label": "STOP", "action": "stop" },
       { "label": "BLEEP", "action": "censor" },
       null
@@ -103,6 +105,8 @@ as you save.
 - `image` is a file in `icons/` (png, jpg, webp or gif), cropped to fill the key.
 - `label` is drawn on the key. `name` is shown on the Neo's screen while the sound plays.
 - `color` is the key's background colour when it has no image.
+- `mode` is `"toggle"` (the default: tap to start, tap again to stop) or `"overlay"`
+  (each tap layers another copy, and the sound is never cut off by other sounds).
 
 Use **headphones** for monitoring. If the sounds come out of your speakers, your mic
 picks them up again and Zoom hears them twice.

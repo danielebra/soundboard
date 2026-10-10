@@ -159,17 +159,18 @@ final class AudioRouter {
 
     private var voiceOwner: [String?]
     private var voiceToken: [Int]
+    private var voiceIsOverlay: [Bool]
     private var nextVoice = 0
-    private var playing: [String: Int] = [:]
 
     init() {
         voiceOwner = Array(repeating: nil, count: voiceCount)
         voiceToken = Array(repeating: 0, count: voiceCount)
+        voiceIsOverlay = Array(repeating: false, count: voiceCount)
     }
 
     var isCensoring: Bool { realtime.censor.load(ordering: .relaxed) }
 
-    func isPlaying(_ key: String) -> Bool { playing[key] != nil }
+    func isPlaying(_ key: String) -> Bool { voiceOwner.contains(key) }
 
     // MARK: Engine lifecycle
 
@@ -326,23 +327,30 @@ final class AudioRouter {
         [broadcast, monitor].compactMap { $0 }.filter { $0.engine.isRunning }
     }
 
-    func play(key: String, sound: AVAudioPCMBuffer, volume: Float, stopOthers: Bool) {
-        if playing[key] != nil {
-            stop(key)
-            return
+    /// `.toggle`: tap starts, tap again stops; with `stopOthers` it ends other toggle sounds.
+    /// `.overlay`: every tap layers another copy on top; never stops or is stopped by others.
+    func play(key: String, sound: AVAudioPCMBuffer, volume: Float, mode: ButtonConfig.Mode, stopOthers: Bool) {
+        if mode == .toggle {
+            if isPlaying(key) {
+                stop(key)
+                return
+            }
+            if stopOthers {
+                for v in 0..<voiceCount where voiceOwner[v] != nil && !voiceIsOverlay[v] { release(v) }
+            }
         }
-        if stopOthers { stopAll() }
         let buses = runningBuses
         guard !buses.isEmpty else { return }
 
         let v = (0..<voiceCount).first { voiceOwner[$0] == nil } ?? nextVoice
         nextVoice = (v + 1) % voiceCount
-        if let previous = voiceOwner[v] { stop(previous) }
+        release(v)
 
+        let wasPlaying = isPlaying(key)
         voiceToken[v] &+= 1
         let token = voiceToken[v]
         voiceOwner[v] = key
-        playing[key] = v
+        voiceIsOverlay[v] = mode == .overlay
 
         for (i, bus) in buses.enumerated() {
             let player = bus.voices[v]
@@ -357,26 +365,30 @@ final class AudioRouter {
             }
             player.play()
         }
-        onPlaybackChange?(key, true)
+        if !wasPlaying { onPlaybackChange?(key, true) }
     }
 
     func stop(_ key: String) {
-        guard let v = playing.removeValue(forKey: key) else { return }
-        voiceToken[v] &+= 1
-        voiceOwner[v] = nil
-        for bus in [broadcast, monitor].compactMap({ $0 }) { bus.voices[v].stop() }
-        onPlaybackChange?(key, false)
+        for v in 0..<voiceCount where voiceOwner[v] == key { release(v) }
     }
 
     func stopAll() {
-        for key in Array(playing.keys) { stop(key) }
+        for v in 0..<voiceCount { release(v) }
+    }
+
+    /// Frees a voice; reports the key stopped once its last copy is gone.
+    private func release(_ v: Int) {
+        guard let key = voiceOwner[v] else { return }
+        voiceToken[v] &+= 1
+        voiceOwner[v] = nil
+        for bus in [broadcast, monitor].compactMap({ $0 }) { bus.voices[v].stop() }
+        if !isPlaying(key) { onPlaybackChange?(key, false) }
     }
 
     private func voiceFinished(_ v: Int, token: Int) {
         guard voiceToken[v] == token, let key = voiceOwner[v] else { return }
         voiceOwner[v] = nil
-        playing[key] = nil
-        onPlaybackChange?(key, false)
+        if !isPlaying(key) { onPlaybackChange?(key, false) }
     }
 
     func setCensor(_ on: Bool) {
