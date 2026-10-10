@@ -16,6 +16,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
     private var page = 0
     private var nowPlaying: [String] = []
     private var censorKey: String?
+    /// Redraws the info screen while it shows something live; nil otherwise.
+    private var screenTimer: Timer?
+    private var lastScreen: ScreenFrame?
+    private var inputLevels: [ScreenFrame.InputLevel] = []
 
     let router = AudioRouter()
     private let decks = StreamDeckManager()
@@ -227,12 +231,14 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
     func deckDidConnect(_ deck: StreamDeck) {
         NSLog("Soundboard: connected %@", deck.model.name)
         deck.setBrightness(config.brightness)
+        lastScreen = nil
         redrawDeck()
         publishStatus()
     }
 
     func deckDidDisconnect(_ deck: StreamDeck) {
         NSLog("Soundboard: disconnected %@", deck.model.name)
+        redrawScreen() // stops the screen timer
         publishStatus()
     }
 
@@ -250,6 +256,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
             router.setCensor(pressed)
             censorKey = pressed ? key : nil
             redraw(key: key)
+            redrawScreen()
         case nil:
             guard pressed, let entry = config.entry(button.sound),
                   case let .success(sound) = assets.sound(entry.file) else { return }
@@ -293,23 +300,90 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
         deck.setKeyImage(parts[1], jpeg: jpeg)
     }
 
+    // MARK: Info screen
+
+    /// Redraws the screen now, and keeps redrawing it 20 times a second while it shows
+    /// something live: a playing sound's progress or the input level.
     private func redrawScreen() {
-        guard let deck = decks.deck, let screen = deck.model.screen else { return }
-        let playingLabel = nowPlaying.last.flatMap { key -> String? in
-            let parts = key.split(separator: ".").compactMap { Int($0) }
-            guard parts.count == 2, let b = button(page: parts[0], index: parts[1]) else { return nil }
-            return config.entry(b.sound)?.name ?? b.label ?? "Sound"
+        let live = decks.deck?.model.screen != nil && censorKey == nil
+            && (!nowPlaying.isEmpty || router.status.mic != nil)
+        if live, screenTimer == nil {
+            let timer = Timer(timeInterval: 1.0 / 20, repeats: true) { [weak self] _ in self?.screenTick() }
+            timer.tolerance = 0.01 // lets macOS batch the wakeups
+            RunLoop.main.add(timer, forMode: .common)
+            screenTimer = timer
+        } else if !live {
+            screenTimer?.invalidate()
+            screenTimer = nil
         }
-        let title = censorKey != nil ? "BLEEP" : playingLabel.map { "▶ \($0)" } ?? "Soundboard"
-        var subtitle = config.pages.count > 1 ? "Page \(page + 1) of \(config.pages.count)" : ""
+        drawScreen()
+    }
+
+    private func screenTick() {
+        if let screen = decks.deck?.model.screen {
+            sampleInput(bars: KeyRenderer.levelBars(screenWidth: screen.width))
+        }
+        drawScreen()
+    }
+
+    /// Sends the screen's current frame unless it's the one already showing.
+    private func drawScreen() {
+        guard let deck = decks.deck, let screen = deck.model.screen else { return }
+        let frame = screenFrame(width: screen.width)
+        guard frame != lastScreen else { return }
+        lastScreen = frame
+        let image = KeyRenderer.screen(frame, width: screen.width, height: screen.height)
+        deck.setScreenImage(KeyRenderer.jpeg(image, quality: 0.85))
+    }
+
+    private func screenFrame(width: Int) -> ScreenFrame {
         let status = router.status
+        let pageInfo = config.pages.count > 1 ? "Page \(page + 1) of \(config.pages.count)" : ""
         let warning = configError != nil ? "config error"
             : status.connecting != nil ? "connecting audio…"
             : status.outputProblem != nil ? "no output" : nil
-        let mic = status.mic != nil ? "input on" : (config.micPassthrough ? "input off" : nil)
-        subtitle = [subtitle, warning ?? mic].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
-        let image = KeyRenderer.screen(width: screen.width, height: screen.height, title: title, subtitle: subtitle)
-        deck.setScreenImage(KeyRenderer.jpeg(image))
+
+        if censorKey == nil, let key = nowPlaying.last, let progress = router.progress(key) {
+            let parts = key.split(separator: ".").compactMap { Int($0) }
+            let button = parts.count == 2 ? button(page: parts[0], index: parts[1]) : nil
+            let entry = config.entry(button?.sound)
+            let others = nowPlaying.count - 1
+            let title = "▶ \(entry?.name ?? button?.label ?? "Sound")" + (others > 0 ? "  +\(others)" : "")
+            let remaining = Int((progress.duration - progress.elapsed).rounded(.up))
+            let columns = KeyRenderer.waveformColumns(screenWidth: width)
+            let peaks = entry.flatMap { assets.waveform($0.file, columns: columns) } ?? Array(repeating: 0, count: columns)
+            let played = progress.duration > 0 ? Int(Double(columns) * progress.elapsed / progress.duration) : 0
+            return .playing(title: title, info: String(format: "-%ld:%02ld", remaining / 60, remaining % 60),
+                            peaks: peaks, played: played)
+        }
+        if censorKey == nil, status.mic != nil {
+            return .input(title: pageInfo.isEmpty ? "Soundboard" : pageInfo,
+                          info: warning ?? (config.noiseSuppression ? "noise removal" : ""),
+                          warning: warning != nil, levels: inputLevels)
+        }
+        let mic = config.micPassthrough ? "input off" : nil
+        let subtitle = [pageInfo, warning ?? mic].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+        return .message(title: censorKey != nil ? "BLEEP" : "Soundboard", subtitle: subtitle)
+    }
+
+    /// Adds the loudest input level since the last frame to the screen's history.
+    private func sampleInput(bars: Int) {
+        let levels = router.takeHeldLevels()
+        // Without the output there's no processed signal; show the raw input instead.
+        let sent = router.status.output != nil ? levels.cleaned : levels.mic
+        let level = ScreenFrame.InputLevel(raw: Self.meterHeight(levels.mic), sent: Self.meterHeight(sent),
+                                           clipped: max(levels.mic, sent) >= 0.99)
+        // After a stretch of quiet as long as the graph, stop scrolling so nothing is redrawn.
+        let quiet = { (level: ScreenFrame.InputLevel) in max(level.raw, level.sent) <= 0.1875 } // about -49 dBFS
+        if quiet(level), inputLevels.count == bars, inputLevels.allSatisfy(quiet) { return }
+        inputLevels.append(level)
+        if inputLevels.count > bars { inputLevels.removeFirst(inputLevels.count - bars) }
+    }
+
+    /// A peak level as a share of the graph: -60…0 dBFS, in sixteenths so noise doesn't redraw.
+    private static func meterHeight(_ linear: Float) -> Float {
+        let db = linear > 0 ? 20 * log10(linear) : -60
+        return (max(0, min(1, (db + 60) / 60)) * 16).rounded() / 16
     }
 
     // MARK: Menu

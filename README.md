@@ -133,8 +133,12 @@ Laid out in the order the signal flows, with a live level meter at each stage:
 - **Overlay keys**: every press plays another copy on top of whatever is already
   playing, so they work well for quick stings like an airhorn or a rimshot.
 - A green border shows what's playing.
-- **The two touch buttons under the Neo's screen** switch pages. The screen shows
-  what's playing, the page, and whether your mic is live.
+- **The two touch buttons under the Neo's screen** switch pages.
+- **The Neo's screen** shows the playing sound's waveform, with how far it has got and
+  the time left. Otherwise, while your input is on, it shows your voice level over the
+  last few seconds. Green is what Zoom hears and grey is the raw input, so you can see
+  noise removal working. Red means the input clipped. After a few seconds of silence the
+  screen stops updating.
 - **A `censor` key** (hold it) mutes your mic and sends a bleep instead.
 - **A `stop` key** stops everything.
 

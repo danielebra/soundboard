@@ -138,6 +138,13 @@ page back/forward), and a 248×58 info screen.
 | Reset | Feature report, 32 bytes: `03 02` |
 
 - Images must be rotated 180°.
+- The info screen is a `ScreenFrame`: a static message, the playing sound's waveform
+  (`AssetCache.waveform`, peaks per pixel column) with a playhead taken from the player's
+  sample time (`AudioRouter.progress`), or the input level history. A 20 fps timer runs only
+  while a sound plays or the input is on. Levels are quantized and frames that compare equal
+  aren't sent, so silence costs no USB traffic. `setScreenImage` keeps only the newest
+  pending frame, so a slow device drops frames instead of falling behind.
+  `SOUNDBOARD_DEBUG=1` logs the average screen write time.
 - The Elgato app opens the device exclusively (`0xe00002c5`), so `StreamDeckManager` retries every 2 s.
 - Other gen-2 models are in the table but untested.
 
