@@ -1,3 +1,4 @@
+import Accelerate
 import AVFoundation
 import CoreGraphics
 
@@ -5,6 +6,7 @@ import CoreGraphics
 final class AssetCache {
     private var sounds: [String: (modified: Date?, result: Result<AVAudioPCMBuffer, Error>)] = [:]
     private var icons: [String: (modified: Date?, image: CGImage?)] = [:]
+    private var waveforms: [String: (sound: AVAudioPCMBuffer, columns: Int, peaks: [Float])] = [:]
 
     func sound(_ path: String) -> Result<AVAudioPCMBuffer, Error> {
         let url = Paths.resolve(path, in: Paths.sounds)
@@ -16,6 +18,35 @@ final class AssetCache {
         }
         sounds[path] = (modified, result)
         return result
+    }
+
+    /// The loudest sample in each of `columns` slices of the sound, scaled so the loudest slice is 1.
+    func waveform(_ path: String, columns: Int) -> [Float]? {
+        guard columns > 0, case let .success(sound) = sound(path) else { return nil }
+        if let cached = waveforms[path], cached.sound === sound, cached.columns == columns { return cached.peaks }
+        let peaks = Self.peaks(sound, columns: columns)
+        waveforms[path] = (sound, columns, peaks)
+        return peaks
+    }
+
+    private static func peaks(_ sound: AVAudioPCMBuffer, columns: Int) -> [Float] {
+        guard let channels = sound.floatChannelData else { return [] }
+        let frames = Int(sound.frameLength)
+        var peaks = [Float](repeating: 0, count: columns)
+        for column in 0..<columns {
+            let start = frames * column / columns
+            let count = frames * (column + 1) / columns - start
+            guard count > 0 else { continue }
+            for c in 0..<Int(sound.format.channelCount) {
+                var peak: Float = 0
+                vDSP_maxmgv(channels[c] + start, 1, &peak, vDSP_Length(count))
+                peaks[column] = max(peaks[column], peak)
+            }
+        }
+        if let loudest = peaks.max(), loudest > 0 {
+            peaks = peaks.map { $0 / loudest }
+        }
+        return peaks
     }
 
     func icon(_ path: String) -> CGImage? {
