@@ -25,6 +25,8 @@ struct AppStatus: Equatable {
     var mic: String?
     var micProblem: String?
     var micLive = false
+    var outputLive = false
+    var monitorLive = false
     var micPassthrough = true
     var monitor: String?
 }
@@ -109,7 +111,8 @@ private struct StatusStrip: View {
             if let connecting = status.connecting {
                 item("Opening \(connecting)…", ok: nil, systemImage: "hourglass")
             } else {
-                item(status.output.map { "Output: \($0)" } ?? (status.outputProblem ?? "No output"),
+                item(status.output.map { "Output: \($0)\(status.outputLive ? "" : " · standby")" }
+                         ?? (status.outputProblem ?? "No output"),
                      ok: status.output != nil, systemImage: "speaker.wave.2")
             }
             if status.micPassthrough {
@@ -117,7 +120,7 @@ private struct StatusStrip: View {
                      ok: status.mic != nil, systemImage: "mic")
             }
             if let monitor = status.monitor {
-                item("Monitor: \(monitor)", ok: true, systemImage: "headphones")
+                item("Monitor: \(monitor)\(status.monitorLive ? "" : " · standby")", ok: true, systemImage: "headphones")
             }
             Spacer()
         }

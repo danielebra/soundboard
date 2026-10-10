@@ -115,9 +115,7 @@ allowed to use; some sites' terms forbid downloading.
 
 Laid out in the order the signal flows, with a live level meter at each stage:
 
-- **Input**: your mic (or any input device), and whether it's routed to the output. The
-  mic is only opened while another app (Zoom) is listening to the output, or while this tab
-  is open; otherwise it's on standby, so macOS's mic indicator stays off between calls.
+- **Input**: your mic (or any input device), and whether it's routed to the output.
 - **Input processing**: **Noise removal** runs Apple's voice isolation (the same engine as
   the macOS Voice Isolation mic mode) on the input only, before the sounds are mixed in.
   It runs on your Mac and adds about 56 ms of delay while it's on, none while off.
@@ -128,6 +126,12 @@ Laid out in the order the signal flows, with a live level meter at each stage:
 - **Output**: the device the mix goes to (BlackHole 2ch, which your call app uses as its
   microphone), and the input and sounds volumes in that mix.
 - **Monitor**: where you hear the sounds and input tests yourself.
+
+Between calls Soundboard keeps every audio device closed, so macOS's mic indicator stays
+off and your Mac can sleep. The mic and output open as soon as another app (Zoom) listens
+to the output, or while this tab is open, and close a few seconds after. Pressing a key
+outside a call opens your headphones for that sound (about a tenth of a second) and keeps
+them open for 30 seconds after the last one.
 
 ## Using it
 
