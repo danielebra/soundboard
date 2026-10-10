@@ -45,8 +45,8 @@ Stream Deck ─HID─▶ Soundboard.app (sandboxed, no network)
                     └─▶ SoundboardFetch.app (not sandboxed; yt-dlp, URLSession, ffmpeg)
 ```
 
-User data lives in `~/Library/Application Support/Soundboard/` (`config.json`,
-`sounds/`, `icons/`, `downloads/` temp). This is the **real** home folder, not the
+User data lives in `~/Library/Application Support/Soundboard/` (`config.json`, `local.json`,
+`sounds/`, `icons/`, `downloads/` temp; `.git/` once sync is on). This is the **real** home folder, not the
 sandbox container: `Paths.home` uses `getpwuid`, and the entitlements grant a
 `temporary-exception.files.home-relative-path.read-write` for that folder only.
 
@@ -54,7 +54,7 @@ sandbox container: `Paths.home` uses `getpwuid`, and the entitlements grant a
 
 | File | What it does |
 | --- | --- |
-| `Config.swift` | `Config` (v2), `SoundEntry` (library), `ButtonConfig` (key), `KeyFace`, v1→v2 `upgrade`, `Paths` |
+| `Config.swift` | `Config` (v2), `SoundEntry` (library), `ButtonConfig` (key), `KeyFace`, v1→v2 `upgrade`, config.json/local.json split, `Paths` |
 | `AppController.swift` | App delegate: config load/save/apply, file watchers, deck events → actions, menu bar, status |
 | `AudioRouter.swift` | The three AVAudioEngines (started on demand), voice pool, play/stop/overlay, bleep (censor), async device setup |
 | `RingBuffer.swift` | Lock-free SPSC mic buffer with drift control (target 20 ms, resync at 80 ms) |
@@ -64,11 +64,15 @@ sandbox container: `Paths.home` uses `getpwuid`, and the entitlements grant a
 | `KeyRenderer.swift` | CoreGraphics key/screen images, JPEG (rotated 180°) for the device |
 | `AssetCache.swift` | Decoded sounds (48 kHz stereo) and icons, cached by file mtime; renders `KeyFace` |
 | `Fetcher.swift` | App side of the helper protocol (`fetch` stream) + `PreviewPlayer` (streaming previews) |
+| `Sync.swift` | `SyncService`: when to run the helper's `sync` (launch, 15 s after a change, every 10 min), its state |
 | `UI/MainWindow.swift` | The single window: tabs (Sounds & Keys, Sound Editor, Audio), status strip, main menu |
 | `UI/SettingsView.swift` | `SettingsModel` + Sounds & Keys tab (library, pad, inspectors) |
 | `UI/AudioTab.swift` | Audio tab (input → processing → test → output → monitor), meters, `AudioMonitor` |
 | `UI/ClipEditor.swift` | Sound Editor: sources (file/YouTube/website), waveform selection, export to WAV |
-| `SoundboardFetch/main.swift` | Helper: `info`, `preview`, `video`, `page`, `direct` modes |
+| `UI/SyncTab.swift` | Sync tab: connect / disconnect a repository, status, setup help |
+| `SoundboardFetch/main.swift` | Helper: `info`, `preview`, `video`, `page`, `direct`, `sync` modes |
+| `SoundboardFetch/GitSync.swift` | `sync` mode: commit, fetch, merge, push with the Mac's git (`Git` runner) |
+| `SoundboardFetch/ConfigMerge.swift` | config.json three-way merge driver (`--merge-config %O %A %B`) |
 | `tools/import_voicemod.py` | One-off importer from Voicemod cache + Elgato profiles (writes a v1 config) |
 
 ## Data model (config.json v2)
@@ -82,7 +86,12 @@ sandbox container: `Paths.home` uses `getpwuid`, and the entitlements grant a
   the library. It runs on load **and on every save**, so dropping a file in `sounds/`
   adds it to the library. Deleting a sound must therefore move its file out of `sounds/`
   (Trash, or a `sounds/Deleted/` fallback), or it gets re-added.
-- `AppController.save` writes the file and records `lastWritten`, so the file watcher
+- **Two files:** `config.json` holds only `Config.sharedKeys` (`version`, `library`, `pages`),
+  which sync. Everything else (devices, volumes, noise removal, brightness, `syncRemote`) is
+  per Mac, in `local.json`. Without `local.json` (older configs) those keys are read from
+  config.json and split out on the next save; with it, any audio keys in config.json are
+  ignored. Both are written with sorted keys and tidy decimals so synced diffs stay small.
+- `AppController.save` writes both files and records `lastWritten`, so the file watcher
   ignores the app's own writes. `apply` only rebuilds audio when routing fields change;
   volumes go through `router.setVolumes`.
 - `SettingsModel.update` debounces commits (0.25 s). `external(_:)` ignores incoming
@@ -196,6 +205,7 @@ Request modes:
 | `video` | yt-dlp download (≤480p H.264). `section` → `--download-sections`. |
 | `page` | Lists the sounds on a web page and never downloads (see below). |
 | `direct` | URLSession download. Rejects anything over 200 MB and `text/*` responses. |
+| `sync` | `link` is a Git remote. Status `synced` (message) or `error`. See below. |
 
 How `page` finds sounds:
 - It decodes entities, including Angular's `&q;`, and parses embedded JSON records (`name` + media file + `url` slug).
@@ -207,6 +217,31 @@ Non-playable formats (ogg/webm/opus) are converted to WAV with ffmpeg. yt-dlp an
 ffmpeg come from Homebrew (`/opt/homebrew/bin`). The helper sets `PATH` so yt-dlp finds
 ffmpeg/deno. The app clears `downloads/` at launch, and the editor deletes its download
 and thumbnail on reset.
+
+## Sync (`sync` mode)
+
+- The Soundboard folder itself is the work tree. The helper (re)writes `.gitignore` (local.json,
+  downloads/, `*/Deleted/`, backups) and `.gitattributes` (`config.json merge=soundboard`), and
+  points `merge.soundboard.driver` in `.git/config` at its own executable on every run.
+- Steps: `add -A` + commit ("Changes from <Mac name>", author "Soundboard (<Mac name>)", never
+  signed) → `ls-remote --symref` for the branch (none = empty repo, push `main`) → fetch →
+  `merge --allow-unrelated-histories -X theirs` → push, retrying up to 3 times if the push races.
+  Leftover conflicts (modify/delete, a failed driver) resolve to theirs, else ours: an edit
+  beats a deletion.
+- `ConfigMerge` merges the library by `id` (field by field when both edited a sound) and pages
+  key by key (whole keys); conflicts go to theirs (the repository). An empty base means a Mac
+  is joining: it takes the repo's keys, and its unused `/System/Library/Sounds` starter sounds
+  are dropped. Deleting a page shifts indices, so concurrent page deletes can mix keys up.
+- Safety: a non-empty remote without `config.json` is refused; a newly set remote gets a
+  `push --dry-run` to a scratch ref first (a public repo you can read but not write would
+  otherwise be merged in before the push failed, as testing against octocat/Hello-World showed).
+- git never prompts: `GIT_TERMINAL_PROMPT=0`, stdin is /dev/null, and `ssh -o BatchMode=yes`
+  unless the user set `core.sshCommand`. The error shown is the server's/ssh's line (GitHub's
+  `ERROR: Repository not found.`), not git's generic "Could not read from remote repository".
+  Homebrew git is preferred; `/usr/bin/git` only if `xcode-select -p` succeeds (otherwise it's a stub that pops an installer).
+- Test without touching real data: `SOUNDBOARD_ROOT=<folder>` points the helper elsewhere; write
+  `<folder>/downloads/<job>.request.json` and run `.build/release/SoundboardFetch` directly.
+  Two such folders and a local bare repo exercise joins, merges and conflicts.
 
 ## Gotchas
 

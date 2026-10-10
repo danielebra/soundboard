@@ -18,7 +18,8 @@ and in your headphones.
 - **One small, separate helper does all downloading.** `SoundboardFetch` runs only when
   you press Fetch or Find Sounds. It downloads the link (using the open-source
   [yt-dlp](https://github.com/yt-dlp/yt-dlp) for video sites) and exits. The main app
-  hands it the link through a file and never touches the network itself.
+  hands it the link through a file and never touches the network itself. If you turn on
+  [Sync](#sync), the same helper runs `git` against the repository you chose, and nothing else.
 - **No third-party code.** About 4,500 lines of Swift on Apple frameworks only
   (IOKit, CoreAudio, AVFoundation, AppKit). No analytics, no crash reporter, no updater.
 - **Only touches its own folder.** The sandbox allows writes to
@@ -69,9 +70,9 @@ at the path the script prints.
 
 ## The Soundboard window
 
-Click the menu bar icon (right-click it for the menu). It's one window with three
+Click the menu bar icon (right-click it for the menu). It's one window with four
 tabs, and a status strip along the bottom that shows the Stream Deck, the output Zoom
-hears, and your mic.
+hears, your mic, and sync.
 
 ### Sounds & Keys
 
@@ -133,6 +134,39 @@ to the output, or while this tab is open, and close a few seconds after. Pressin
 outside a call opens your headphones for that sound (about a tenth of a second) and keeps
 them open for 30 seconds after the last one.
 
+### Sync
+
+Use the same sounds and keys on all your Macs by keeping them in a **private Git
+repository you own** (GitHub, GitLab, your own server, or even a bare repository on a
+shared drive).
+
+1. Create an empty private repository.
+2. Check that this Mac can reach it: `git ls-remote <address>` in Terminal should finish
+   without asking for anything. Use an SSH address (`git@github.com:you/soundboard.git`)
+   with your SSH key, or an HTTPS one whose login is saved in the Keychain.
+3. Paste the address into the **Sync** tab and press **Connect**. Repeat on your other Macs.
+
+What syncs: the library, pages, sound files (`sounds/`) and key pictures (`icons/`).
+What doesn't: everything on the Audio tab (devices, volumes, noise removal, brightness),
+because each Mac has its own devices. Those live in `local.json`.
+
+- It syncs when you connect, at launch, about 15 seconds after you change a sound or key,
+  and every 10 minutes. **Sync Now** is in the tab and the menu bar menu.
+- A Mac that connects to a repository already in use keeps its own sounds but takes the
+  repository's keys.
+- Edits on different Macs merge: different sounds, different keys, or different settings
+  of the same sound all combine. If two Macs change the **same** key or setting before
+  syncing, the repository's version wins. A sound removed on one Mac but edited on the
+  other is kept. Every version stays in the repository's history.
+- Soundboard refuses a repository that already holds something else, and checks that it
+  can push before merging anything in.
+
+Your Soundboard folder becomes a Git work tree, and each change is a commit by
+"Soundboard (*your Mac's name*)". Git comes from Homebrew or Apple's developer tools
+(`xcode-select --install`). Signing in is done entirely by git and ssh, so Soundboard
+never sees a password or key, and git is never allowed to stop and ask: if it can't sign
+in, the Sync tab shows why.
+
 ## Using it
 
 - **Toggle keys** (the default): press to play, press again to stop.
@@ -151,13 +185,14 @@ them open for 30 seconds after the last one.
 
 ## Configuration
 
-Everything below can be set in **Configure Keys…**. If you'd rather edit the file,
+Everything below can be set in the window. If you'd rather edit the files,
 use Menu → **Edit config.json** (or **Open Soundboard Folder**). Changes apply as
-soon as you save.
+soon as you save. `config.json` holds the sounds and keys, which [sync](#sync) between
+Macs. `local.json` holds this Mac's audio settings, which don't sync:
 
 ```jsonc
+// local.json
 {
-  "version": 2,
   "outputDevice": "BlackHole 2ch",       // what Zoom listens to
   "micDevice": "fifine Microphone",      // null = macOS default input
   "micPassthrough": true,                // route the input to the output
@@ -170,6 +205,12 @@ soon as you save.
   "soundVolume": 0.8,                    // sounds volume in the output mix
   "stopOthers": true,                    // a toggle sound stops other toggle sounds
   "brightness": 70,
+  "syncRemote": null                     // Git repository to sync with (Sync tab)
+}
+
+// config.json
+{
+  "version": 2,
   "library": [                           // every sound you've added, on the pad or not
     { "id": "airhorn", "name": "Airhorn", "file": "airhorn.mp3", "label": "Airhorn", "color": "#dc2626" },
     { "id": "meow", "name": "Meow", "file": "meow.wav", "image": "cat.png", "volume": 0.6, "mode": "overlay" }
