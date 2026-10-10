@@ -4,7 +4,7 @@ import AppKit
 ///
 /// The main app is sandboxed without network access, so it can't download anything
 /// itself. The helper is a separate tiny app that only runs `yt-dlp` when you click
-/// Fetch, and reports back through a status file in the Soundboard folder.
+/// Fetch, and talks to this app only through files in the Soundboard downloads folder.
 enum Fetcher {
     enum Status {
         case progress(Double, String)
@@ -34,8 +34,15 @@ enum Fetcher {
                 return
             }
 
+            // Launch arguments don't reach apps opened from the sandbox, so hand over a request file.
+            do {
+                let request = try JSONSerialization.data(withJSONObject: ["link": link.absoluteString])
+                try request.write(to: downloads.appending(path: "\(job).request.json"), options: .atomic)
+            } catch {
+                continuation.finish(throwing: error)
+                return
+            }
             let configuration = NSWorkspace.OpenConfiguration()
-            configuration.arguments = [link.absoluteString, downloads.path, job]
             configuration.activates = false
             configuration.createsNewApplicationInstance = true
             configuration.addsToRecentItems = false

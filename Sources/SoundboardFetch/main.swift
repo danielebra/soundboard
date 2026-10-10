@@ -2,18 +2,37 @@ import Foundation
 
 // SoundboardFetch: the only part of Soundboard that uses the network.
 //
-// Launched by the main app with: <link> <downloads folder> <job id>
-// Runs yt-dlp to fetch a small (≤480p) copy of the video, writes progress to
-// <job>.json, then exits. Stops early if <job>.cancel appears.
+// The sandboxed main app can't pass launch arguments to another app, so it writes
+// <job>.request.json ({"link": …}) into the downloads folder and launches this helper.
+// The helper fetches a small (≤480p) copy of the video with yt-dlp, writes progress to
+// <job>.json, then exits. It stops early if <job>.cancel appears.
 
-let arguments = CommandLine.arguments
-guard arguments.count >= 4 else {
-    FileHandle.standardError.write("usage: SoundboardFetch <link> <folder> <job>\n".data(using: .utf8)!)
-    exit(2)
+let folder = URL(fileURLWithPath: NSHomeDirectory())
+    .appending(path: "Library/Application Support/Soundboard/downloads", directoryHint: .isDirectory)
+
+/// Claims the oldest pending request (renaming it so a second helper won't take it too).
+func nextRequest() -> (job: String, link: String)? {
+    let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.creationDateKey])) ?? []
+    let requests = files.filter { $0.lastPathComponent.hasSuffix(".request.json") }
+        .sorted { ($0.creationDate ?? .distantPast) < ($1.creationDate ?? .distantPast) }
+    for request in requests {
+        let claimed = request.deletingPathExtension().appendingPathExtension("claimed")
+        guard (try? FileManager.default.moveItem(at: request, to: claimed)) != nil else { continue }
+        defer { try? FileManager.default.removeItem(at: claimed) }
+        guard let data = try? Data(contentsOf: claimed),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: String],
+              let link = json["link"] else { continue }
+        let job = request.lastPathComponent.replacingOccurrences(of: ".request.json", with: "")
+        return (job, link)
+    }
+    return nil
 }
-let link = arguments[1]
-let folder = URL(fileURLWithPath: arguments[2], isDirectory: true)
-let job = arguments[3]
+
+extension URL {
+    var creationDate: Date? { (try? resourceValues(forKeys: [.creationDateKey]))?.creationDate }
+}
+
+guard let (job, link) = nextRequest() else { exit(0) }
 let statusURL = folder.appending(path: "\(job).json")
 let cancelURL = folder.appending(path: "\(job).cancel")
 
