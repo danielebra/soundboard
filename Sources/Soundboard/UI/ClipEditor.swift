@@ -121,7 +121,7 @@ final class ClipEditorModel: ObservableObject {
         }
     }
 
-    private static func computePeaks(_ asset: AVURLAsset) throws -> [Float] {
+    static func computePeaks(_ asset: AVURLAsset) throws -> [Float] {
         let semaphore = DispatchSemaphore(value: 0)
         var track: AVAssetTrack?
         Task {
@@ -230,7 +230,7 @@ final class ClipEditorModel: ObservableObject {
         }
     }
 
-    private static func export(_ asset: AVURLAsset, range: CMTimeRange, normalize: Bool, to url: URL) throws {
+    static func export(_ asset: AVURLAsset, range: CMTimeRange, normalize: Bool, to url: URL) throws {
         let semaphore = DispatchSemaphore(value: 0)
         var track: AVAssetTrack?
         Task {
@@ -365,6 +365,7 @@ struct ClipEditorView: View {
         }
         .padding(20)
         .frame(minWidth: 760, minHeight: 640)
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 
     private var isFetching: Bool {

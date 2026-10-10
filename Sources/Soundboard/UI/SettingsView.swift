@@ -175,6 +175,7 @@ struct SettingsView: View {
             }
             .padding(20)
             .frame(minWidth: 480)
+            .background(Color(nsColor: .windowBackgroundColor))
 
             Divider()
 

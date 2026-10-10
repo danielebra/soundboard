@@ -39,7 +39,7 @@ final class Windows: NSObject, NSWindowDelegate {
     // MARK: Clip editor
 
     /// `page`/`key` is the key the new sound goes on; nil picks the first empty key.
-    func showClipEditor(page: Int? = nil, key: Int? = nil, file: URL? = nil) {
+    func showClipEditor(page: Int? = nil, key: Int? = nil, file: URL? = nil, link: String? = nil) {
         clipWindow?.close()
         let target = page.flatMap { p in key.map { (p, $0) } }
         let existing = target.flatMap { t in app.config.pages[safe: t.0]?[safe: t.1] ?? nil }
@@ -52,6 +52,10 @@ final class Windows: NSObject, NSWindowDelegate {
         let view = ClipEditorView(model: model) { [weak self] in self?.clipWindow?.close() }
         clipWindow = makeWindow(title: "New Sound", content: view, size: CGSize(width: 820, height: 680))
         if let file { model.open(file) }
+        if let link {
+            model.link = link
+            model.fetch()
+        }
         present(clipWindow!)
     }
 

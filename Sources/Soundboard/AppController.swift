@@ -56,6 +56,28 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
 
         decks.delegate = self
         decks.start()
+
+        if CommandLine.arguments.contains("--settings") { showSettings() }
+        if let i = CommandLine.arguments.firstIndex(of: "--clip") {
+            // `--clip <file or link>` opens the clip editor with it.
+            let argument = CommandLine.arguments[safe: i + 1].flatMap { $0.hasPrefix("-") ? nil : $0 }
+            if let argument, argument.hasPrefix("http") {
+                windows.showClipEditor(link: argument)
+            } else {
+                windows.showClipEditor(file: argument.map { URL(fileURLWithPath: $0) })
+            }
+        }
+        if let i = CommandLine.arguments.firstIndex(of: "--snapshot") {
+            // Development aid: saves the front window as snapshot.png in the Soundboard folder
+            // after `--snapshot <seconds>` (default 2).
+            let delay = CommandLine.arguments[safe: i + 1].flatMap(Double.init) ?? 2
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                guard let view = NSApp.windows.filter(\.isVisible).max(by: { $0.frame.width < $1.frame.width })?.contentView,
+                      let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+                view.cacheDisplay(in: view.bounds, to: rep)
+                try? rep.representation(using: .png, properties: [:])?.write(to: Paths.root.appending(path: "snapshot.png"))
+            }
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
