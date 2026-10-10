@@ -144,7 +144,9 @@ page back/forward), and a 248×58 info screen.
   while a sound plays or the input is on. Levels are quantized and frames that compare equal
   aren't sent, so silence costs no USB traffic. `setScreenImage` keeps only the newest
   pending frame, so a slow device drops frames instead of falling behind.
-  `SOUNDBOARD_DEBUG=1` logs the average screen write time.
+  `SOUNDBOARD_DEBUG=1` logs the average screen write time. Measured on the Neo (USB high
+  speed): ~5 KB per frame, a 2 ms write, and about +0.3% of a core over the ~7% the audio
+  engines use, so 20 fps leaves plenty of room.
 - The Elgato app opens the device exclusively (`0xe00002c5`), so `StreamDeckManager` retries every 2 s.
 - Other gen-2 models are in the table but untested.
 
