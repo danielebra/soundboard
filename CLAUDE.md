@@ -212,5 +212,11 @@ and thumbnail on reset.
   and views need an explicit background.
 - **Don't make audible test noise** on the user's Mac: preview tests used a silent file
   served by `python3 -m http.server` on 127.0.0.1. Test videos were Big Buck Bunny (open-licensed, Blender).
+- **Live SwiftUI views must not invalidate the window.** The Audio tab once used ~24% of a core on
+  the main thread just for its meters. Three things fixed it: each meter is its own `LevelMeter`
+  observed only by its `MeterView` (and it publishes only when what's drawn changes), the meter is
+  drawn in a `Canvas` so a new level doesn't change any layout, and the window's
+  `NSHostingController` has `sizingOptions = []` (otherwise every update re-measures the whole
+  window). Profile with `sample <pid> 5` and look at the main thread.
 - **`rm` on a shell variable gets blocked** by a safety check; use `"${VAR:?}"`.
 - **Commits:** small and incremental, **no Co-Authored-By trailer** (user preference).
