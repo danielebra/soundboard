@@ -69,7 +69,7 @@ at the path the script prints.
 
 ## The Soundboard window
 
-Click the menu bar icon (right-click it for the menu). It's one window with three
+Click the menu bar icon (right-click it for the menu). It's one window with four
 tabs, and a status strip along the bottom that shows the Stream Deck, the output Zoom
 hears, and your mic.
 
@@ -133,6 +133,15 @@ to the output, or while this tab is open, and close a few seconds after. Pressin
 outside a call opens your headphones for that sound (about a tenth of a second) and keeps
 them open for 30 seconds after the last one.
 
+### Settings
+
+How you play the keys, and app-level options:
+
+- **Stream Deck**: key brightness.
+- **On-Screen Palette**: which screen corner opens the palette (see below), or Off.
+- **Playback**: whether starting a sound stops the one that's playing.
+- **General**: open Soundboard when you log in.
+
 ## Using it
 
 - **Toggle keys** (the default): press to play, press again to stop.
@@ -148,6 +157,20 @@ them open for 30 seconds after the last one.
   screen stops updating.
 - **A `censor` key** (hold it) mutes your mic and sends a bleep instead.
 - **A `stop` key** stops everything.
+
+### Without a Stream Deck
+
+Rest the pointer in the **bottom-left corner** of the screen for a moment and a small
+palette fans out of it: the same keys as the pad, on the same page, with the page
+switcher underneath when you have more than one. Click a key to play it; hold Bleep
+like you would on the deck. The palette never takes focus, so Zoom stays in front, and
+it folds away when the pointer leaves it or you click elsewhere. Menu → **Show Palette**
+opens it too.
+
+Change the corner (or turn it off) on the Settings tab. Pick one macOS isn't using for its
+own Hot Corners (System Settings › Desktop & Dock › Hot Corners). On several displays,
+only corners that don't touch another display count. The corner only watches where the
+pointer is (no keyboard monitoring, and no Accessibility permission).
 
 ## Configuration
 
@@ -170,6 +193,8 @@ soon as you save.
   "soundVolume": 0.8,                    // sounds volume in the output mix
   "stopOthers": true,                    // a toggle sound stops other toggle sounds
   "brightness": 70,
+  "hotCorner": "bottomLeft",             // opens the on-screen palette: topLeft, topRight,
+                                         // bottomLeft, bottomRight or off
   "library": [                           // every sound you've added, on the pad or not
     { "id": "airhorn", "name": "Airhorn", "file": "airhorn.mp3", "label": "Airhorn", "color": "#dc2626" },
     { "id": "meow", "name": "Meow", "file": "meow.wav", "image": "cat.png", "volume": 0.6, "mode": "overlay" }
@@ -215,6 +240,7 @@ swift build -c release
 .build/release/Soundboard --preview out/   # render keys to PNGs
 open build/Soundboard.app --args --settings          # open straight into Sounds & Keys
 open build/Soundboard.app --args --audio             # open the Audio tab
+open build/Soundboard.app --args --app-settings      # open the Settings tab
 open build/Soundboard.app --args --clip <file|link>  # open the Sound Editor with a file or link
 SOUNDBOARD_DEBUG=1 .build/release/Soundboard   # log raw key reports
 ```
@@ -229,4 +255,6 @@ SOUNDBOARD_DEBUG=1 .build/release/Soundboard   # log raw key reports
 | `UI/MainWindow.swift` | The single window: tabs and status strip |
 | `UI/SettingsView.swift` | Sounds & Keys tab: library, pad, inspector |
 | `UI/ClipEditor.swift` | Sound Editor tab: sources, waveform trimming, export |
+| `UI/SettingsTab.swift` | Settings tab: Stream Deck, palette corner, playback, open at login |
+| `Palette.swift` | On-screen palette and its hot corner, for use without a Stream Deck |
 | `Fetcher.swift`, `SoundboardFetch/` | Download helper for YouTube and websites (the only networked part) |
