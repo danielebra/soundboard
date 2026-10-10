@@ -15,7 +15,7 @@ and in your headphones.
 - **No network access, enforced by macOS.** The app runs in the App Sandbox *without*
   the network entitlement, so the kernel refuses any connection it tries to make. You
   can check: `codesign -d --entitlements - /Applications/Soundboard.app`.
-- **No third-party code.** About 1,000 lines of Swift on Apple frameworks only
+- **No third-party code.** About 1,400 lines of Swift on Apple frameworks only
   (IOKit, CoreAudio, AVFoundation, AppKit). No analytics, no crash reporter, no updater.
 - **Only touches its own folder.** The sandbox allows writes to
   `~/Library/Application Support/Soundboard` and nothing else.
