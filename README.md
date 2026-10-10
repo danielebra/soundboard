@@ -69,7 +69,7 @@ at the path the script prints.
 
 ## The Soundboard window
 
-Click the menu bar icon (right-click it for the menu). It's one window with three
+Click the menu bar icon (right-click it for the menu). It's one window with four
 tabs, and a status strip along the bottom that shows the Stream Deck, the output Zoom
 hears, and your mic.
 
@@ -128,7 +128,15 @@ Laid out in the order the signal flows, with a live level meter at each stage:
 - **Output**: the device the mix goes to (BlackHole 2ch, which your call app uses as its
   microphone), and the input and sounds volumes in that mix.
 - **Monitor**: where you hear the sounds and input tests yourself.
-- **On-screen palette**: which screen corner opens the palette (see below), or Off.
+
+### Settings
+
+How you play the keys, and app-level options:
+
+- **Stream Deck**: key brightness.
+- **On-Screen Palette**: which screen corner opens the palette (see below), or Off.
+- **Playback**: whether starting a sound stops the one that's playing.
+- **General**: open Soundboard when you log in.
 
 ## Using it
 
@@ -155,7 +163,7 @@ like you would on the deck. The palette never takes focus, so Zoom stays in fron
 it folds away when the pointer leaves it or you click elsewhere. Menu → **Show Palette**
 opens it too.
 
-Change the corner (or turn it off) on the Audio tab. Pick one macOS isn't using for its
+Change the corner (or turn it off) on the Settings tab. Pick one macOS isn't using for its
 own Hot Corners (System Settings › Desktop & Dock › Hot Corners). On several displays,
 only corners that don't touch another display count. The corner only watches where the
 pointer is (no keyboard monitoring, and no Accessibility permission).
@@ -228,6 +236,7 @@ swift build -c release
 .build/release/Soundboard --preview out/   # render keys to PNGs
 open build/Soundboard.app --args --settings          # open straight into Sounds & Keys
 open build/Soundboard.app --args --audio             # open the Audio tab
+open build/Soundboard.app --args --app-settings      # open the Settings tab
 open build/Soundboard.app --args --clip <file|link>  # open the Sound Editor with a file or link
 SOUNDBOARD_DEBUG=1 .build/release/Soundboard   # log raw key reports
 ```
@@ -242,4 +251,6 @@ SOUNDBOARD_DEBUG=1 .build/release/Soundboard   # log raw key reports
 | `UI/MainWindow.swift` | The single window: tabs and status strip |
 | `UI/SettingsView.swift` | Sounds & Keys tab: library, pad, inspector |
 | `UI/ClipEditor.swift` | Sound Editor tab: sources, waveform trimming, export |
+| `UI/SettingsTab.swift` | Settings tab: Stream Deck, palette corner, playback, open at login |
+| `Palette.swift` | On-screen palette and its hot corner, for use without a Stream Deck |
 | `Fetcher.swift`, `SoundboardFetch/` | Download helper for YouTube and websites (the only networked part) |

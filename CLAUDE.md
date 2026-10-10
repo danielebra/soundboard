@@ -17,6 +17,7 @@ swift build -c release                 # both products
 ./build.sh --install                   # → /Applications
 open build/Soundboard.app --args --settings            # open the window (Sounds & Keys)
 open build/Soundboard.app --args --audio               # … on the Audio tab
+open build/Soundboard.app --args --app-settings        # … on the Settings tab
 open build/Soundboard.app --args --clip <file|link>    # … Sound Editor with a file or link
 open build/Soundboard.app --args --settings --snapshot 3   # saves the window as snapshot.png in the
                                                            # Soundboard folder after 3s (see Testing)
@@ -65,9 +66,10 @@ sandbox container: `Paths.home` uses `getpwuid`, and the entitlements grant a
 | `KeyRenderer.swift` | CoreGraphics key/screen images, JPEG (rotated 180°) for the device |
 | `AssetCache.swift` | Decoded sounds (48 kHz stereo) and icons, cached by file mtime; renders `KeyFace` |
 | `Fetcher.swift` | App side of the helper protocol (`fetch` stream) + `PreviewPlayer` (streaming previews) |
-| `UI/MainWindow.swift` | The single window: tabs (Sounds & Keys, Sound Editor, Audio), status strip, main menu |
+| `UI/MainWindow.swift` | The single window: tabs (Sounds & Keys, Sound Editor, Audio, Settings), status strip, main menu |
 | `UI/SettingsView.swift` | `SettingsModel` + Sounds & Keys tab (library, pad, inspectors) |
 | `UI/AudioTab.swift` | Audio tab (input → processing → test → output → monitor), meters, `AudioMonitor` |
+| `UI/SettingsTab.swift` | Settings tab: Stream Deck, on-screen palette, playback, open at login. Not signal settings |
 | `UI/ClipEditor.swift` | Sound Editor: sources (file/YouTube/website), waveform selection, export to WAV |
 | `SoundboardFetch/main.swift` | Helper: `info`, `preview`, `video`, `page`, `direct` modes |
 | `tools/import_voicemod.py` | One-off importer from Voicemod cache + Elgato profiles (writes a v1 config) |
