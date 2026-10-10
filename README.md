@@ -120,7 +120,8 @@ Laid out in the order the signal flows, with a live level meter at each stage:
   the macOS Voice Isolation mic mode) on the input only, before the sounds are mixed in.
   It runs on your Mac and adds about 56 ms of delay while it's on, none while off.
   **Strength** blends between the processed and the unprocessed input.
-- **Test input**: record 5 seconds, then play it back processed or unprocessed. It plays
+- **Test input**: record until you press Stop (2 minutes at most), then play it back
+  processed or unprocessed. It plays
   on the monitor device only, never to the output. Change the settings and play again to
   hear the same recording with them.
 - **Output**: the device the mix goes to (BlackHole 2ch, which your call app uses as its

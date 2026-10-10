@@ -9,7 +9,8 @@ final class AudioMonitor: ObservableObject {
     @Published var mic = Meter()
     @Published var cleaned = Meter()
     @Published var output = Meter()
-    @Published var recordProgress: Double?
+    /// Seconds recorded so far, nil when not recording.
+    @Published var recordElapsed: Double?
     @Published var clip: MicClip?
     @Published var playing: Playback?
     @Published var canRecord = false
@@ -29,7 +30,8 @@ final class AudioMonitor: ObservableObject {
     }
 
     let router: AudioRouter
-    let recordSeconds = 5.0
+    /// Recording stops on its own after this.
+    let maxRecordSeconds = 120.0
     private var timer: Timer?
 
     init(router: AudioRouter) {
@@ -46,7 +48,7 @@ final class AudioMonitor: ObservableObject {
         timer?.invalidate()
         timer = nil
         stopPlayback()
-        if recordProgress != nil { router.cancelTestRecording(); recordProgress = nil }
+        if recordElapsed != nil { router.cancelTestRecording(); recordElapsed = nil }
     }
 
     private func tick() {
@@ -54,8 +56,8 @@ final class AudioMonitor: ObservableObject {
         mic.feed(levels.mic)
         cleaned.feed(levels.cleaned)
         output.feed(levels.output)
-        let progress = router.testRecordProgress
-        if progress != recordProgress { recordProgress = progress }
+        let elapsed = router.testRecordedSeconds
+        if elapsed != recordElapsed { recordElapsed = elapsed }
         if let finished = router.takeTestRecording() { clip = finished }
         if canRecord != router.canRecordTest { canRecord = router.canRecordTest }
         if canPlay != router.canPlayTest { canPlay = router.canPlayTest }
@@ -63,13 +65,13 @@ final class AudioMonitor: ObservableObject {
 
     func record() {
         stopPlayback()
-        router.startTestRecording(seconds: recordSeconds)
-        recordProgress = 0
+        router.startTestRecording(maxSeconds: maxRecordSeconds)
+        recordElapsed = 0
     }
 
-    func cancelRecording() {
-        router.cancelTestRecording()
-        recordProgress = nil
+    func finishRecording() {
+        router.finishTestRecording()
+        recordElapsed = nil
     }
 
     func play(_ kind: Playback, config: Config) {
@@ -147,13 +149,15 @@ struct AudioTab: View {
     private var inputTest: some View {
         Section {
             HStack(spacing: 10) {
-                if let progress = monitor.recordProgress {
-                    Button("Stop", systemImage: "stop.fill") { monitor.cancelRecording() }
-                    ProgressView(value: progress).frame(maxWidth: 160)
-                    Text("Recording… say something").foregroundStyle(.secondary)
+                if let elapsed = monitor.recordElapsed {
+                    Button("Stop", systemImage: "stop.fill") { monitor.finishRecording() }
+                    Image(systemName: "circle.fill").foregroundStyle(.red).font(.caption)
+                    Text(String(format: "%d:%02d", Int(elapsed) / 60, Int(elapsed) % 60)).monospacedDigit()
+                    Text("Recording… say something, then press Stop").foregroundStyle(.secondary)
                 } else {
-                    Button(monitor.clip == nil ? "Record \(Int(monitor.recordSeconds)) seconds" : "Record again",
-                           systemImage: "record.circle") { monitor.record() }
+                    Button(monitor.clip == nil ? "Record" : "Record again", systemImage: "record.circle") {
+                        monitor.record()
+                    }
                         .disabled(!monitor.canRecord)
                     Divider().frame(height: 18)
                     playButton("Play processed", .cleaned)

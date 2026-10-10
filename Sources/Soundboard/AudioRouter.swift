@@ -122,9 +122,17 @@ private final class TapState: @unchecked Sendable {
 
     func cancelRecording() { lock.withLock { recording = nil } }
 
-    /// 0…1 while recording, nil otherwise.
-    var recordProgress: Double? {
-        lock.withLock { recording.map { recordTarget > 0 ? Double($0.count) / Double(recordTarget) : 0 } }
+    /// Ends the recording early, keeping what was captured.
+    func finishRecording() {
+        lock.withLock {
+            if let recording, !recording.isEmpty { finished = MicClip(samples: recording, sampleRate: recordRate) }
+            recording = nil
+        }
+    }
+
+    /// Seconds recorded so far, nil when not recording.
+    var recordedSeconds: Double? {
+        lock.withLock { recording.map { recordRate > 0 ? Double($0.count) / recordRate : 0 } }
     }
 
     func takeFinished() -> MicClip? {
@@ -620,15 +628,18 @@ final class AudioRouter {
 
     var canPlayTest: Bool { previewPlayer != nil && monitor?.engine.isRunning == true }
 
-    func startTestRecording(seconds: Double) {
+    /// Records until `finishTestRecording`, or `maxSeconds` at most.
+    func startTestRecording(maxSeconds: Double) {
         guard let mic else { return }
-        taps.startRecording(frames: Int(seconds * mic.sampleRate))
+        taps.startRecording(frames: Int(maxSeconds * mic.sampleRate))
     }
+
+    func finishTestRecording() { taps.finishRecording() }
 
     func cancelTestRecording() { taps.cancelRecording() }
 
-    /// 0…1 while recording, nil otherwise.
-    var testRecordProgress: Double? { taps.recordProgress }
+    /// Seconds recorded so far, nil when not recording.
+    var testRecordedSeconds: Double? { taps.recordedSeconds }
 
     /// The finished recording, once.
     func takeTestRecording() -> MicClip? { taps.takeFinished() }
