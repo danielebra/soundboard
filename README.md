@@ -19,7 +19,7 @@ and in your headphones.
   you press Fetch or Find Sounds. It downloads the link (using the open-source
   [yt-dlp](https://github.com/yt-dlp/yt-dlp) for video sites) and exits. The main app
   hands it the link through a file and never touches the network itself.
-- **No third-party code.** About 2,900 lines of Swift on Apple frameworks only
+- **No third-party code.** About 4,500 lines of Swift on Apple frameworks only
   (IOKit, CoreAudio, AVFoundation, AppKit). No analytics, no crash reporter, no updater.
 - **Only touches its own folder.** The sandbox allows writes to
   `~/Library/Application Support/Soundboard` and nothing else.
