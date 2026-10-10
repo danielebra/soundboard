@@ -20,6 +20,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
     private var screenTimer: Timer?
     private var lastScreen: ScreenFrame?
     private var inputLevels: [ScreenFrame.InputLevel] = []
+    /// Input chunks not yet graphed (raw, sent), and the raw chunk held back to line up with
+    /// the noise removal's latency.
+    private var pendingInput: (raw: [Float], sent: [Float]) = ([], [])
+    private var delayedRaw: Float = 0
 
     let router = AudioRouter()
     private let decks = StreamDeckManager()
@@ -366,13 +370,35 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
         return .message(title: censorKey != nil ? "BLEEP" : "Soundboard", subtitle: subtitle)
     }
 
-    /// Adds the loudest input level since the last frame to the screen's history.
+    /// Adds the next 50 ms of input to the screen's history, if it has arrived.
     private func sampleInput(bars: Int) {
-        let levels = router.takeHeldLevels()
-        // Without the output there's no processed signal; show the raw input instead.
-        let sent = router.status.output != nil ? levels.cleaned : levels.mic
-        let level = ScreenFrame.InputLevel(raw: Self.meterHeight(levels.mic), sent: Self.meterHeight(sent),
-                                           clipped: max(levels.mic, sent) >= 0.99)
+        let input = router.takeChunks(.input)
+        let unprocessed = router.takeChunks(.unprocessed), processed = router.takeChunks(.processed)
+        let processing = router.status.output != nil
+        if processing {
+            pendingInput.raw += unprocessed
+            pendingInput.sent += processed
+        } else {
+            // Without the output there's no processed signal; graph the raw input as sent.
+            pendingInput.raw += input
+            pendingInput.sent += input
+        }
+        guard !pendingInput.raw.isEmpty, !pendingInput.sent.isEmpty else { return }
+        // Chunks come in pairs every 100 ms and the timer drifts against the audio clock;
+        // take one per frame, merging any backlog so the graph never lags.
+        func next(_ queue: inout [Float]) -> Float {
+            var level = queue.removeFirst()
+            while queue.count > 2 { level = max(level, queue.removeFirst()) }
+            return level
+        }
+        var raw = next(&pendingInput.raw)
+        let sent = next(&pendingInput.sent)
+        if processing && config.noiseSuppression {
+            // Noise removal delays its output ~56 ms, about one chunk.
+            (raw, delayedRaw) = (delayedRaw, raw)
+        }
+        let level = ScreenFrame.InputLevel(raw: Self.meterHeight(raw), sent: Self.meterHeight(sent),
+                                           clipped: max(raw, sent) >= 0.99)
         // After a stretch of quiet as long as the graph, stop scrolling so nothing is redrawn.
         let quiet = { (level: ScreenFrame.InputLevel) in max(level.raw, level.sent) <= 0.1875 } // about -49 dBFS
         if quiet(level), inputLevels.count == bars, inputLevels.allSatisfy(quiet) { return }

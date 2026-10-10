@@ -82,12 +82,13 @@ private final class RealtimeState: @unchecked Sendable {
     let censor = Atomic<Bool>(false)
 }
 
-/// Peak of the loudest channel in a tap buffer.
-private func peak(_ buffer: AVAudioPCMBuffer) -> Float {
+/// Peak of the loudest channel in a tap buffer, or in `count` frames of it from `start`.
+private func peak(_ buffer: AVAudioPCMBuffer, from start: Int = 0, count: Int? = nil) -> Float {
     guard let channels = buffer.floatChannelData else { return 0 }
+    let end = min(Int(buffer.frameLength), start + (count ?? Int(buffer.frameLength)))
     var level: Float = 0
     for c in 0..<Int(buffer.format.channelCount) {
-        for i in 0..<Int(buffer.frameLength) { level = max(level, abs(channels[c][i])) }
+        for i in start..<max(start, end) { level = max(level, abs(channels[c][i])) }
     }
     return level
 }
@@ -103,27 +104,35 @@ struct MicClip {
 private final class TapState: @unchecked Sendable {
     private let lock = NSLock()
     private var levels = AudioRouter.Levels()
-    /// The loudest levels since `takeHeld`, so a slower reader doesn't miss short peaks.
-    private var held = AudioRouter.Levels()
+    /// Peaks of each 50 ms of the signals the deck's screen graphs, oldest first.
+    private var chunks: [AudioRouter.Signal: [Float]] = [:]
     private var recording: [Float]?
     private var recordTarget = 0
     private var recordRate = 0.0
     private var finished: MicClip?
 
     func set(_ keyPath: WritableKeyPath<AudioRouter.Levels, Float>, _ value: Float) {
-        lock.withLock {
-            levels[keyPath: keyPath] = value
-            held[keyPath: keyPath] = max(held[keyPath: keyPath], value)
-        }
+        lock.withLock { levels[keyPath: keyPath] = value }
     }
 
     var current: AudioRouter.Levels { lock.withLock { levels } }
 
-    func takeHeld() -> AudioRouter.Levels {
-        lock.withLock { defer { held = AudioRouter.Levels() }; return held }
+    /// Taps arrive in ~100 ms buffers whatever size is asked for, so they're split into
+    /// 50 ms chunks here and the screen takes them in order.
+    func addChunks(_ signal: AudioRouter.Signal, _ buffer: AVAudioPCMBuffer) {
+        let size = max(1, Int(buffer.format.sampleRate * AudioRouter.chunkSeconds))
+        let peaks = stride(from: 0, to: Int(buffer.frameLength), by: size).map { peak(buffer, from: $0, count: size) }
+        lock.withLock {
+            chunks[signal, default: []].append(contentsOf: peaks)
+            if chunks[signal]!.count > 40 { chunks[signal]!.removeFirst(chunks[signal]!.count - 40) } // nobody reading
+        }
     }
 
-    func reset() { lock.withLock { levels = AudioRouter.Levels(); held = AudioRouter.Levels() } }
+    func takeChunks(_ signal: AudioRouter.Signal) -> [Float] {
+        lock.withLock { chunks.removeValue(forKey: signal) ?? [] }
+    }
+
+    func reset() { lock.withLock { levels = AudioRouter.Levels(); chunks = [:] } }
 
     func startRecording(frames: Int) {
         lock.withLock { recording = []; recordTarget = frames; finished = nil }
@@ -254,6 +263,7 @@ private final class MicCapture {
         engine.connect(input, to: sink, format: format)
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
             taps.set(\.mic, peak(buffer))
+            taps.addChunks(.input, buffer)
             taps.record(buffer)
         }
     }
@@ -286,6 +296,17 @@ final class AudioRouter {
         /// The output mix: processed input plus sounds.
         var output: Float = 0
     }
+
+    /// Signals the deck's screen graphs, in 50 ms chunks.
+    enum Signal {
+        /// The input device (its own engine; works without the output).
+        case input
+        /// The input as it enters processing, and as it leaves it. Both on the output engine,
+        /// so their chunks line up (apart from the processing's latency).
+        case unprocessed, processed
+    }
+
+    static let chunkSeconds = 0.05
 
     private(set) var status = Status()
     /// (sound key, isPlaying) — always on the main thread.
@@ -498,8 +519,12 @@ final class AudioRouter {
                 let filter = makeVoiceIsolation()
                 configure(filter, config)
                 bus.add(voice, format: format, through: filter)
+                voice.installTap(onBus: 0, bufferSize: 1024, format: nil) { buffer, _ in
+                    taps.addChunks(.unprocessed, buffer)
+                }
                 filter.installTap(onBus: 0, bufferSize: 1024, format: nil) { buffer, _ in
                     taps.set(\.cleaned, peak(buffer))
+                    taps.addChunks(.processed, buffer)
                 }
                 built.micNode = voice
                 built.micFilter = filter
@@ -654,8 +679,8 @@ final class AudioRouter {
 
     var levels: Levels { taps.current }
 
-    /// The loudest levels since the last call. For one reader only (the deck's screen).
-    func takeHeldLevels() -> Levels { taps.takeHeld() }
+    /// 50 ms peaks of `signal` since the last call, oldest first. For one reader only (the deck's screen).
+    func takeChunks(_ signal: Signal) -> [Float] { taps.takeChunks(signal) }
 
     var canRecordTest: Bool { mic?.engine.isRunning == true }
 
