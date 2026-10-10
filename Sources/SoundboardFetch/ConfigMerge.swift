@@ -10,10 +10,21 @@ enum ConfigMerge {
         guard let o = read(ours), let t = read(theirs) else { return 1 }
         // An empty base: both sides added the file (a Mac joining a repository already in use).
         let merged = merge(base: read(base) ?? [:], ours: o, theirs: t)
-        guard let data = try? JSONSerialization.data(withJSONObject: merged,
+        guard let data = try? JSONSerialization.data(withJSONObject: tidyNumbers(merged),
                                                      options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]),
               (try? (data + Data("\n".utf8)).write(to: URL(fileURLWithPath: ours))) != nil else { return 1 }
         return 0
+    }
+
+    /// JSONSerialization writes 0.8 as 0.80000000000000004; decimal numbers write as typed.
+    static func tidyNumbers(_ value: Any) -> Any {
+        switch value {
+        case let number as NSNumber where CFGetTypeID(number) != CFBooleanGetTypeID() && CFNumberIsFloatType(number):
+            NSDecimalNumber(string: "\(number.doubleValue)")
+        case let object as [String: Any]: object.mapValues(tidyNumbers)
+        case let array as [Any]: array.map(tidyNumbers)
+        default: value
+        }
     }
 
     private static func read(_ path: String) -> [String: Any]? {
