@@ -230,6 +230,10 @@ final class MainWindow: NSObject, NSWindowDelegate {
             model.editor.source = link.contains("youtu") ? .youtube : .website
             model.editor.link = link
             model.editor.fetch()
+        } else if case let .replace(id) = target, let entry = app.config.entry(id) {
+            // Re-clip: start from the sound's current audio, named after the sound.
+            model.editor.source = .file
+            model.editor.open(Paths.resolve(entry.file, in: Paths.sounds), title: entry.name)
         }
     }
 
