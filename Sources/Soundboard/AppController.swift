@@ -373,6 +373,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
         action("Quit Soundboard", #selector(quit), key: "q")
     }
 
+    /// Opening the app again (Finder, Spotlight, `open`) while it runs shows the window.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        mainWindow.show()
+        return true
+    }
+
     /// Click opens the window; right-click or Control-click shows the menu.
     @objc private func statusItemClicked() {
         let event = NSApp.currentEvent
