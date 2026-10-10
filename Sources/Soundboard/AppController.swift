@@ -24,7 +24,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
     private var reloadWork: DispatchWorkItem?
     private var watchers: [DispatchSourceFileSystemObject] = []
 
-    private var windows: Windows!
+    private var mainWindow: MainWindow!
 
     /// Key grid of the connected deck (Neo layout when none is plugged in).
     var keyLayout: (keys: Int, columns: Int) {
@@ -43,8 +43,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
         menu.delegate = self
         statusItem.menu = menu
 
-        windows = Windows(app: self)
-        onConfigChange = { [weak self] config in self?.windows?.configChanged(config) }
+        mainWindow = MainWindow(app: self)
+        onConfigChange = { [weak self] config in
+            self?.mainWindow?.configChanged(config)
+            self?.publishStatus()
+        }
+        Fetcher.clearDownloads()
 
         router.onPlaybackChange = { [weak self] key, playing in self?.playbackChanged(key, playing) }
         router.onNeedsRebuild = { [weak self] in self?.scheduleRebuild() }
@@ -54,6 +58,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
             NSLog("Soundboard: output=%@ monitor=%@ mic=%@",
                   s.output ?? "✗ \(s.outputProblem ?? "-")", s.monitor ?? "off", s.mic ?? "✗ \(s.micProblem ?? "off")")
             self.redrawScreen()
+            self.publishStatus()
         }
         AudioDevices.observeChanges { [weak self] in self?.scheduleRebuild() }
 
@@ -65,13 +70,18 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
         decks.start()
 
         if CommandLine.arguments.contains("--settings") { showSettings() }
+        if CommandLine.arguments.contains("--audio") { mainWindow.show(.audio) }
         if let i = CommandLine.arguments.firstIndex(of: "--clip") {
             // `--clip <file or link>` opens the clip editor with it.
             let argument = CommandLine.arguments[safe: i + 1].flatMap { $0.hasPrefix("-") ? nil : $0 }
             if let argument, argument.hasPrefix("http") {
-                windows.showClipEditor(link: argument)
+                mainWindow.showEditor(link: argument)
             } else {
-                windows.showClipEditor(file: argument.map { URL(fileURLWithPath: $0) })
+                if let argument {
+                    mainWindow.showEditor(file: URL(fileURLWithPath: argument))
+                } else {
+                    mainWindow.showEditor()
+                }
             }
         }
         if let i = CommandLine.arguments.firstIndex(of: "--snapshot") {
@@ -216,10 +226,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
         NSLog("Soundboard: connected %@", deck.model.name)
         deck.setBrightness(config.brightness)
         redrawDeck()
+        publishStatus()
     }
 
     func deckDidDisconnect(_ deck: StreamDeck) {
         NSLog("Soundboard: disconnected %@", deck.model.name)
+        publishStatus()
     }
 
     func deck(_ deck: StreamDeck, button index: Int, pressed: Bool) {
@@ -340,8 +352,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
         if broken > 0 { info("⚠︎ \(broken) sound file\(broken == 1 ? "" : "s") couldn't be loaded") }
 
         menu.addItem(.separator())
-        action("Configure Keys…", #selector(showSettings), key: ",")
-        action("New Sound from YouTube…", #selector(newClip), key: "n")
+        action("Open Soundboard…", #selector(showSettings), key: ",")
+        action("New Sound…", #selector(newClip), key: "n")
         action("Stop All Sounds", #selector(stopAll), key: ".")
         action("Send Microphone Through", #selector(toggleMic), on: config.micPassthrough)
         action("Hear Sounds Myself", #selector(toggleMonitor), on: config.monitor)
@@ -359,9 +371,21 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
         action("Quit Soundboard", #selector(quit), key: "q")
     }
 
-    @objc func showSettings() { windows.showSettings(select: page) }
+    @objc func showSettings() { mainWindow.showPad(page: page) }
 
-    @objc private func newClip() { windows.showClipEditor() }
+    @objc private func newClip() { mainWindow.showEditor() }
+
+    /// Snapshot for the window's status strip.
+    var appStatus: AppStatus {
+        let s = router.status
+        return AppStatus(deck: decks.deck?.model.name, deckBusy: decks.busyDevice != nil,
+                         output: s.output, outputProblem: s.outputProblem, connecting: s.connecting,
+                         mic: s.mic, micProblem: s.micProblem, micPassthrough: config.micPassthrough, monitor: s.monitor)
+    }
+
+    private func publishStatus() {
+        mainWindow?.statusChanged(appStatus)
+    }
 
     @objc private func stopAll() { router.stopAll() }
 

@@ -373,7 +373,8 @@ private enum Payload {
 
 // MARK: - Window
 
-struct SettingsView: View {
+/// The "Sounds & Keys" tab: library, pad and inspector.
+struct PadView: View {
     @ObservedObject var model: SettingsModel
 
     var body: some View {
@@ -386,8 +387,6 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 16) {
                 PageBar(model: model)
                 KeyGrid(model: model)
-                Divider()
-                AudioSettings(model: model)
                 Spacer(minLength: 0)
             }
             .padding(20)
@@ -408,8 +407,6 @@ struct SettingsView: View {
             }
             .frame(width: 330)
         }
-        .frame(minHeight: 640)
-        .background(Color(nsColor: .windowBackgroundColor))
     }
 }
 
@@ -429,7 +426,7 @@ private struct LibraryPanel: View {
                     Button("Import Audio Files…") {
                         model.importSounds(model.choose([.audio, .movie], multiple: true))
                     }
-                    Button("Clip from YouTube…") { model.openClipEditor?(.library, nil) }
+                    Button("New Sound from YouTube or a Website…") { model.openClipEditor?(.library, nil) }
                 } label: {
                     Image(systemName: "plus")
                 }
@@ -449,7 +446,7 @@ private struct LibraryPanel: View {
             }
             .overlay {
                 if model.config.library.isEmpty {
-                    Text("Drop audio files here, or use + to clip one from YouTube.")
+                    Text("Drop audio files here, or use + to make one from YouTube or a website.")
                         .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center).padding()
                 }
             }
@@ -581,7 +578,7 @@ private struct KeyCell: View {
     var body: some View {
         let _ = model.revision
         let button = model.button(index)
-        let image = model.assets.render(model.config.face(button), size: 192, active: false)
+        let image = model.assets.render(model.config.face(button), size: 224, active: false)
         let selected = model.selection == .key(index)
         let highlighted: Bool = {
             if case let .sound(id) = model.selection { return button?.sound == id && button?.action == nil }
@@ -589,7 +586,7 @@ private struct KeyCell: View {
         }()
         Image(decorative: image, scale: 2)
             .resizable()
-            .frame(width: 88, height: 88)
+            .frame(width: 112, height: 112)
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .overlay(alignment: .topLeading) {
                 if button?.action == nil, model.config.entry(button?.sound)?.mode == .overlay {
@@ -665,7 +662,7 @@ private struct KeyInspector: View {
                     }
                     if button?.sound == nil {
                         Text("Or drag a sound from the library onto the key.").font(.caption).foregroundStyle(.secondary)
-                        Button("Clip a New Sound from YouTube…") { model.openClipEditor?(.key(page: model.page, index: index), nil) }
+                        Button("Make a New Sound for This Key…") { model.openClipEditor?(.key(page: model.page, index: index), nil) }
                     }
                 }
             } header: {
@@ -778,7 +775,7 @@ private struct SoundFields: View {
                 Button("Replace Audio…") {
                     if let url = model.choose([.audio, .movie]).first { model.useFile(url, forSound: id) }
                 }
-                Button("Re-clip from YouTube…") { model.openClipEditor?(.replace(soundID: id), nil) }
+                Button("Re-clip in Sound Editor…") { model.openClipEditor?(.replace(soundID: id), nil) }
             }
             Picker("When pressed", selection: Binding { entry?.mode ?? .toggle } set: { mode in
                 model.editEntry(id) { $0.mode = mode == .toggle ? nil : mode }
@@ -840,7 +837,7 @@ private struct KeyCapFields: View {
 
 // MARK: - Audio
 
-private struct AudioSettings: View {
+struct AudioSettings: View {
     @ObservedObject var model: SettingsModel
 
     private func devicePicker(_ title: String, _ keyPath: WritableKeyPath<Config, String?>, output: Bool) -> some View {

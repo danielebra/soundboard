@@ -2,11 +2,28 @@ import AVFoundation
 import AVKit
 import SwiftUI
 
-/// Loads a video/audio file, lets you pick a range on a waveform, and saves it as a sound.
+/// Brings in audio from a file, YouTube or a web page, lets you fine-tune the part you
+/// want on a waveform, and saves it as a library sound.
 final class ClipEditorModel: ObservableObject {
+    enum Source: String, CaseIterable, Identifiable {
+        case file = "File on Disk"
+        case youtube = "YouTube"
+        case website = "Website"
+        var id: String { rawValue }
+        var systemImage: String {
+            switch self {
+            case .file: "folder"
+            case .youtube: "play.rectangle"
+            case .website: "globe"
+            }
+        }
+    }
+
     enum Phase: Equatable {
         case empty
         case fetching(progress: Double, message: String)
+        /// A web page had several sounds on it.
+        case choosing([Fetcher.Choice], pageTitle: String)
         case loading
         case ready
         case failed(String)
@@ -19,9 +36,13 @@ final class ClipEditorModel: ObservableObject {
         let showLabel: Bool
     }
 
+    @Published var source: Source = .youtube
     @Published var phase: Phase = .empty
     @Published var link = ""
     @Published var name = ""
+    /// Where the audio came from, shown above the waveform.
+    @Published var sourceTitle = ""
+    @Published var hasVideo = false
     @Published var duration = 0.0
     @Published var start = 0.0
     @Published var end = 0.0
@@ -31,6 +52,10 @@ final class ClipEditorModel: ObservableObject {
     @Published var useFrame = true
     @Published var showLabel = true
     @Published var saving = false
+    /// The sound/key it's going to already has an image (so don't replace it by default).
+    @Published var targetHasImage = false {
+        didSet { useFrame = !targetHasImage }
+    }
 
     /// Peak amplitude per 1/`peaksPerSecond` s of audio.
     private(set) var peaks: [Float] = []
@@ -38,17 +63,13 @@ final class ClipEditorModel: ObservableObject {
 
     let player = AVPlayer()
     private var asset: AVURLAsset?
-    private var source: URL?
     private var downloaded: URL?
     private var timeObserver: Any?
     private var stopObserver: Any?
     private var fetchTask: Task<Void, Never>?
-    let targetHasImage: Bool
     var onSave: ((Result) -> Void)?
 
-    init(targetHasImage: Bool) {
-        self.targetHasImage = targetHasImage
-        useFrame = !targetHasImage
+    init() {
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 30), queue: .main) { [weak self] time in
             self?.playhead = time.seconds
         }
@@ -68,24 +89,38 @@ final class ClipEditorModel: ObservableObject {
     func fetch() {
         let link = link.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = URL(string: link), url.scheme?.hasPrefix("http") == true else {
-            phase = .failed("Paste a YouTube link, like https://www.youtube.com/watch?v=…")
+            phase = .failed(source == .youtube ? "Paste a YouTube link, like https://www.youtube.com/watch?v=…"
+                                               : "Paste a web link, like https://www.example.com/sounds/…")
             return
         }
+        run(Fetcher.fetch(url, mode: source == .youtube ? .video : .page))
+    }
+
+    /// Downloads one of the sounds found on a web page.
+    func pick(_ choice: Fetcher.Choice) {
+        guard let url = URL(string: choice.url) else { return }
+        run(Fetcher.fetch(url, mode: .direct, title: choice.name))
+    }
+
+    private func run(_ stream: AsyncThrowingStream<Fetcher.Status, Error>) {
         cleanUp()
-        phase = .fetching(progress: 0, message: "Starting download…")
+        fetchTask?.cancel()
+        phase = .fetching(progress: 0, message: "Starting…")
         fetchTask = Task { @MainActor [weak self] in
             do {
-                for try await status in Fetcher.fetch(url) {
+                for try await status in stream {
                     guard let self else { return }
                     switch status {
                     case let .progress(fraction, message):
                         self.phase = .fetching(progress: fraction, message: message)
+                    case let .choices(choices, pageTitle):
+                        self.phase = .choosing(choices, pageTitle: pageTitle)
                     case let .done(file, title):
                         self.downloaded = file
-                        if self.name.isEmpty { self.name = title }
-                        self.open(file)
+                        self.open(file, title: title)
                     }
                 }
+            } catch is CancellationError {
             } catch {
                 self?.phase = .failed(error.localizedDescription)
             }
@@ -97,10 +132,12 @@ final class ClipEditorModel: ObservableObject {
         phase = .empty
     }
 
-    func open(_ url: URL) {
-        source = url
+    func open(_ url: URL, title: String? = nil) {
+        if downloaded != url { cleanUp() }
         phase = .loading
-        if name.isEmpty { name = url.deletingPathExtension().lastPathComponent }
+        let title = title.flatMap { $0.isEmpty ? nil : $0 } ?? url.deletingPathExtension().lastPathComponent
+        sourceTitle = title
+        name = title
         let asset = AVURLAsset(url: url)
         self.asset = asset
         player.replaceCurrentItem(with: AVPlayerItem(asset: asset))
@@ -108,7 +145,9 @@ final class ClipEditorModel: ObservableObject {
             do {
                 let duration = try await asset.load(.duration).seconds
                 guard duration.isFinite, duration > 0 else { throw AudioError.message("This file has no length.") }
+                let hasVideo = !(try await asset.loadTracks(withMediaType: .video)).isEmpty
                 let peaks = try await Task.detached { try Self.computePeaks(asset) }.value
+                self.hasVideo = hasVideo
                 self.duration = duration
                 self.peaks = peaks
                 self.start = 0
@@ -119,6 +158,24 @@ final class ClipEditorModel: ObservableObject {
                 self.phase = .failed("Couldn't read audio: \(error.localizedDescription)")
             }
         }
+    }
+
+    /// Back to an empty editor (keeps the chosen source).
+    func reset() {
+        fetchTask?.cancel()
+        cleanUp()
+        player.replaceCurrentItem(with: nil)
+        asset = nil
+        peaks = []
+        duration = 0
+        start = 0
+        end = 0
+        name = ""
+        link = ""
+        sourceTitle = ""
+        hasVideo = false
+        zoomRange = nil
+        phase = .empty
     }
 
     static func computePeaks(_ asset: AVURLAsset) throws -> [Float] {
@@ -201,7 +258,7 @@ final class ClipEditorModel: ObservableObject {
         let range = CMTimeRange(start: CMTime(seconds: start, preferredTimescale: 600),
                                 end: CMTime(seconds: end, preferredTimescale: 600))
         let name = name.trimmingCharacters(in: .whitespaces).isEmpty ? "Clip" : name.trimmingCharacters(in: .whitespaces)
-        let normalize = normalize, useFrame = useFrame, showLabel = showLabel, frameTime = start + min(0.2, selectionLength / 2)
+        let normalize = normalize, useFrame = useFrame && hasVideo, showLabel = showLabel, frameTime = start + min(0.2, selectionLength / 2)
         Task { @MainActor in
             do {
                 let base = Self.uniqueBase(Self.slug(name))
@@ -315,39 +372,54 @@ final class ClipEditorModel: ObservableObject {
 
 struct ClipEditorView: View {
     @ObservedObject var model: ClipEditorModel
-    var onCancel: () -> Void
+    /// Where the saved sound goes, e.g. "Library" or "Page 1 · Key 3".
+    let destination: String
+    let saveTitle: String
+    /// Resets the destination to just the library (nil when it already is).
+    var clearDestination: (() -> Void)?
+    @State private var dropTargeted = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                TextField("YouTube link", text: $model.link, prompt: Text("Paste a YouTube link"))
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit { model.fetch() }
-                Button("Fetch") { model.fetch() }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(model.link.isEmpty || isFetching)
-                Button("Open File…") {
-                    let panel = NSOpenPanel()
-                    panel.allowedContentTypes = [.movie, .audio]
-                    if panel.runModal() == .OK, let url = panel.url { model.open(url) }
+                Picker("Source", selection: $model.source) {
+                    ForEach(ClipEditorModel.Source.allCases) { Label($0.rawValue, systemImage: $0.systemImage).tag($0) }
                 }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 400)
+                .onChange(of: model.source) { if model.phase != .ready { model.phase = .empty } }
+                Spacer()
+                HStack(spacing: 4) {
+                    Text("Saves to").foregroundStyle(.secondary)
+                    Text(destination).fontWeight(.medium)
+                    if let clearDestination {
+                        Button("Save to library only", systemImage: "xmark.circle.fill", action: clearDestination)
+                            .labelStyle(.iconOnly).buttonStyle(.borderless)
+                    }
+                }
+                .font(.callout)
             }
+
+            sourceInput
 
             switch model.phase {
             case .empty:
-                placeholder("Paste a YouTube link and press Fetch, or open a video or audio file from your Mac.")
+                placeholder(emptyMessage, systemImage: model.source.systemImage)
             case let .fetching(progress, message):
                 VStack(alignment: .leading) {
                     ProgressView(value: progress)
                     HStack {
-                        Text(message).font(.caption).foregroundStyle(.secondary)
+                        Text(message).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         Spacer()
                         Button("Cancel") { model.cancelFetch() }
                     }
                 }
-                placeholder("Downloading… only this step uses the internet.")
+                placeholder("Downloading… only this step uses the internet.", systemImage: "arrow.down.circle")
+            case let .choosing(choices, pageTitle):
+                ChoiceList(model: model, choices: choices, pageTitle: pageTitle)
             case .loading:
-                ProgressView("Reading audio…").frame(maxWidth: .infinity, minHeight: 300)
+                ProgressView("Reading audio…").frame(maxWidth: .infinity, maxHeight: .infinity)
             case let .failed(message):
                 placeholder(message, systemImage: "exclamationmark.triangle")
             case .ready:
@@ -356,16 +428,62 @@ struct ClipEditorView: View {
 
             Divider()
             HStack {
+                Button("Start Over") { model.reset() }
+                    .disabled(model.phase == .empty)
                 Spacer()
-                Button("Cancel", role: .cancel, action: onCancel).keyboardShortcut(.cancelAction)
-                Button(model.saving ? "Saving…" : "Save Sound") { model.save() }
+                Button(model.saving ? "Saving…" : saveTitle) { model.save() }
                     .buttonStyle(.borderedProminent)
+                    .keyboardShortcut("s", modifiers: .command)
                     .disabled(model.phase != .ready || model.saving || model.selectionLength < 0.05)
             }
         }
         .padding(20)
-        .frame(minWidth: 760, minHeight: 640)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.green, lineWidth: dropTargeted ? 3 : 0).padding(4))
+        .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers in
+            guard let provider = providers.first else { return false }
+            _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                guard let url else { return }
+                DispatchQueue.main.async {
+                    model.source = .file
+                    model.open(url)
+                }
+            }
+            return true
+        }
+    }
+
+    @ViewBuilder
+    private var sourceInput: some View {
+        switch model.source {
+        case .file:
+            HStack {
+                Button("Choose File…") {
+                    let panel = NSOpenPanel()
+                    panel.allowedContentTypes = [.movie, .audio]
+                    if panel.runModal() == .OK, let url = panel.url { model.open(url) }
+                }
+                Text("or drop an audio or video file anywhere on this tab").foregroundStyle(.secondary)
+            }
+        case .youtube, .website:
+            HStack {
+                TextField("Link", text: $model.link,
+                          prompt: Text(model.source == .youtube ? "Paste a YouTube link" : "Paste a link to a soundboard page or an audio file"))
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit { model.fetch() }
+                Button(model.source == .youtube ? "Fetch" : "Find Sounds") { model.fetch() }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(model.link.isEmpty || isFetching)
+            }
+        }
+    }
+
+    private var emptyMessage: String {
+        switch model.source {
+        case .file: "Open a sound or video from your Mac, then trim it to the part you want."
+        case .youtube: "Paste a YouTube link and press Fetch. A small copy downloads, then you pick the moment."
+        case .website: "Paste a link to a soundboard page (it lists the sounds it finds), a direct link to an audio file, or another video site."
+        }
     }
 
     private var isFetching: Bool {
@@ -373,22 +491,25 @@ struct ClipEditorView: View {
         return false
     }
 
-    private func placeholder(_ text: String, systemImage: String = "film") -> some View {
+    private func placeholder(_ text: String, systemImage: String) -> some View {
         VStack(spacing: 10) {
             Image(systemName: systemImage).font(.system(size: 36)).foregroundStyle(.tertiary)
-            Text(text).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            Text(text).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 460)
         }
-        .frame(maxWidth: .infinity, minHeight: 300)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var editor: some View {
         VStack(alignment: .leading, spacing: 12) {
-            PlayerView(player: model.player)
-                .frame(height: 260)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+            Text(model.sourceTitle).font(.headline).lineLimit(1)
+            if model.hasVideo {
+                PlayerView(player: model.player)
+                    .frame(minHeight: 200, maxHeight: 300)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
 
             WaveformView(model: model)
-                .frame(height: 96)
+                .frame(height: model.hasVideo ? 96 : 160)
 
             HStack(spacing: 18) {
                 TimeNudger(title: "Start", value: model.start, minus: { model.nudge(start: -0.05) }, plus: { model.nudge(start: 0.05) })
@@ -407,10 +528,41 @@ struct ClipEditorView: View {
                 Toggle("Show name on key", isOn: $model.showLabel)
                 Toggle("Even out volume", isOn: $model.normalize)
                     .help("Makes quiet and loud clips play at a similar level")
-                Toggle(model.targetHasImage ? "Replace key image with video frame" : "Use video frame as key image",
-                       isOn: $model.useFrame)
+                if model.hasVideo {
+                    Toggle(model.targetHasImage ? "Replace key image with video frame" : "Use video frame as key image",
+                           isOn: $model.useFrame)
+                }
             }
             .toggleStyle(.checkbox)
+            Spacer(minLength: 0)
+        }
+    }
+}
+
+/// The sounds found on a web page; picking one downloads it into the editor.
+private struct ChoiceList: View {
+    @ObservedObject var model: ClipEditorModel
+    let choices: [Fetcher.Choice]
+    let pageTitle: String
+    @State private var filter = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Found \(choices.count) sounds\(pageTitle.isEmpty ? "" : " on “\(pageTitle)”")").font(.headline).lineLimit(1)
+                Spacer()
+                TextField("Filter", text: $filter, prompt: Text("Filter")).textFieldStyle(.roundedBorder).frame(width: 200)
+            }
+            List(choices.filter { filter.isEmpty || $0.name.localizedCaseInsensitiveContains(filter) }) { choice in
+                HStack {
+                    Image(systemName: "waveform").foregroundStyle(.secondary)
+                    Text(choice.name).lineLimit(1)
+                    Spacer()
+                    Text(URL(string: choice.url)?.pathExtension.uppercased() ?? "").font(.caption).foregroundStyle(.secondary)
+                    Button("Use") { model.pick(choice) }
+                }
+            }
+            .listStyle(.bordered(alternatesRowBackgrounds: true))
         }
     }
 }

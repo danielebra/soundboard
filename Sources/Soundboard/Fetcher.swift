@@ -6,9 +6,26 @@ import AppKit
 /// itself. The helper is a separate tiny app that only runs `yt-dlp` when you click
 /// Fetch, and talks to this app only through files in the Soundboard downloads folder.
 enum Fetcher {
+    enum Mode: String {
+        /// YouTube and other video sites (yt-dlp).
+        case video
+        /// A web page, e.g. a soundboard site: find the sounds on it.
+        case page
+        /// A link straight to an audio/video file.
+        case direct
+    }
+
+    struct Choice: Equatable, Hashable, Identifiable {
+        let url: String
+        let name: String
+        var id: String { url }
+    }
+
     enum Status {
         case progress(Double, String)
         case done(URL, title: String)
+        /// A page with several sounds on it — fetch one of these with `.direct`.
+        case choices([Choice], pageTitle: String)
     }
 
     static var helperURL: URL {
@@ -17,7 +34,13 @@ enum Fetcher {
 
     static var downloads: URL { Paths.root.appending(path: "downloads", directoryHint: .isDirectory) }
 
-    static func fetch(_ link: URL) -> AsyncThrowingStream<Status, Error> {
+    /// Downloads are only needed while editing; clear leftovers from earlier sessions.
+    static func clearDownloads() {
+        let files = (try? FileManager.default.contentsOfDirectory(at: downloads, includingPropertiesForKeys: nil)) ?? []
+        files.forEach { try? FileManager.default.removeItem(at: $0) }
+    }
+
+    static func fetch(_ link: URL, mode: Mode, title: String? = nil) -> AsyncThrowingStream<Status, Error> {
         AsyncThrowingStream { continuation in
             let job = String(UUID().uuidString.prefix(8)).lowercased()
             let statusURL = downloads.appending(path: "\(job).json")
@@ -36,7 +59,9 @@ enum Fetcher {
 
             // Launch arguments don't reach apps opened from the sandbox, so hand over a request file.
             do {
-                let request = try JSONSerialization.data(withJSONObject: ["link": link.absoluteString])
+                var fields = ["link": link.absoluteString, "mode": mode.rawValue]
+                if let title { fields["title"] = title }
+                let request = try JSONSerialization.data(withJSONObject: fields)
                 try request.write(to: downloads.appending(path: "\(job).request.json"), options: .atomic)
             } catch {
                 continuation.finish(throwing: error)
@@ -73,6 +98,15 @@ enum Fetcher {
                         } else {
                             continuation.finish(throwing: AudioError.message("Download finished but no file was produced."))
                         }
+                        return
+                    case "choices":
+                        try? FileManager.default.removeItem(at: statusURL)
+                        let choices = (status["choices"] as? [[String: String]] ?? []).compactMap { item -> Choice? in
+                            guard let url = item["url"] else { return nil }
+                            return Choice(url: url, name: item["name"] ?? url)
+                        }
+                        continuation.yield(.choices(choices, pageTitle: status["title"] as? String ?? ""))
+                        continuation.finish()
                         return
                     case "error":
                         try? FileManager.default.removeItem(at: statusURL)
