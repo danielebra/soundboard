@@ -106,6 +106,10 @@ final class StreamDeck {
     private let reportBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: 512)
     private var states: [Bool]
     private let debug = ProcessInfo.processInfo.environment["SOUNDBOARD_DEBUG"] != nil
+    /// The newest screen image not yet sent; older ones are dropped if the device falls behind.
+    private var pendingScreen: Data?
+    private let screenLock = NSLock()
+    private var screenStats = (frames: 0, seconds: 0.0)
 
     var buttonCount: Int { model.keyCount + model.touchKeys }
 
@@ -152,7 +156,24 @@ final class StreamDeck {
     }
 
     func setScreenImage(_ jpeg: Data) {
-        sendImage(command: 0x0b, index: 0, jpeg)
+        let queued = screenLock.withLock {
+            defer { pendingScreen = jpeg }
+            return pendingScreen != nil
+        }
+        if queued { return } // the write already queued will pick this one up
+        io.async { [self] in
+            guard let jpeg = screenLock.withLock({ defer { pendingScreen = nil }; return pendingScreen }) else { return }
+            let start = Date()
+            writeImage(command: 0x0b, index: 0, jpeg)
+            if debug {
+                screenStats.frames += 1
+                screenStats.seconds += Date().timeIntervalSince(start)
+                if screenStats.frames == 100 {
+                    NSLog("Soundboard: screen write %.1f ms avg (%ld bytes)", screenStats.seconds * 10, jpeg.count)
+                    screenStats = (0, 0)
+                }
+            }
+        }
     }
 
     /// Blocks until queued writes have reached the device.
@@ -170,36 +191,38 @@ final class StreamDeck {
     }
 
     private func sendImage(command: UInt8, index: UInt8, _ data: Data) {
-        let device = self.device
-        io.async {
-            let bytes = [UInt8](data)
-            let chunk = Self.imageReportLength - Self.imageHeaderLength
-            var report = [UInt8](repeating: 0, count: Self.imageReportLength)
-            var offset = 0
-            var page = 0
-            while offset < bytes.count {
-                let length = min(chunk, bytes.count - offset)
-                let isLast: UInt8 = offset + length == bytes.count ? 1 : 0
-                report.withUnsafeMutableBufferPointer { buffer in
-                    buffer.update(repeating: 0)
-                    buffer[0] = 0x02
-                    buffer[1] = command
-                    buffer[2] = index
-                    buffer[3] = isLast
-                    buffer[4] = UInt8(length & 0xff)
-                    buffer[5] = UInt8(length >> 8)
-                    buffer[6] = UInt8(page & 0xff)
-                    buffer[7] = UInt8(page >> 8)
-                    for i in 0..<length { buffer[Self.imageHeaderLength + i] = bytes[offset + i] }
-                }
-                let result = IOHIDDeviceSetReport(device, kIOHIDReportTypeOutput, 0x02, report, report.count)
-                if result != kIOReturnSuccess {
-                    NSLog("Soundboard: image report failed: 0x%08x", result)
-                    return
-                }
-                offset += length
-                page += 1
+        io.async { self.writeImage(command: command, index: index, data) }
+    }
+
+    /// Sends one image as a run of output reports. Runs on `io`.
+    private func writeImage(command: UInt8, index: UInt8, _ data: Data) {
+        let bytes = [UInt8](data)
+        let chunk = Self.imageReportLength - Self.imageHeaderLength
+        var report = [UInt8](repeating: 0, count: Self.imageReportLength)
+        var offset = 0
+        var page = 0
+        while offset < bytes.count {
+            let length = min(chunk, bytes.count - offset)
+            let isLast: UInt8 = offset + length == bytes.count ? 1 : 0
+            report.withUnsafeMutableBufferPointer { buffer in
+                buffer.update(repeating: 0)
+                buffer[0] = 0x02
+                buffer[1] = command
+                buffer[2] = index
+                buffer[3] = isLast
+                buffer[4] = UInt8(length & 0xff)
+                buffer[5] = UInt8(length >> 8)
+                buffer[6] = UInt8(page & 0xff)
+                buffer[7] = UInt8(page >> 8)
+                for i in 0..<length { buffer[Self.imageHeaderLength + i] = bytes[offset + i] }
             }
+            let result = IOHIDDeviceSetReport(device, kIOHIDReportTypeOutput, 0x02, report, report.count)
+            if result != kIOReturnSuccess {
+                NSLog("Soundboard: image report failed: 0x%08x", result)
+                return
+            }
+            offset += length
+            page += 1
         }
     }
 }

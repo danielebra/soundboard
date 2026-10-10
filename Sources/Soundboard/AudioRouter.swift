@@ -82,12 +82,13 @@ private final class RealtimeState: @unchecked Sendable {
     let censor = Atomic<Bool>(false)
 }
 
-/// Peak of the loudest channel in a tap buffer.
-private func peak(_ buffer: AVAudioPCMBuffer) -> Float {
+/// Peak of the loudest channel in a tap buffer, or in `count` frames of it from `start`.
+private func peak(_ buffer: AVAudioPCMBuffer, from start: Int = 0, count: Int? = nil) -> Float {
     guard let channels = buffer.floatChannelData else { return 0 }
+    let end = min(Int(buffer.frameLength), start + (count ?? Int(buffer.frameLength)))
     var level: Float = 0
     for c in 0..<Int(buffer.format.channelCount) {
-        for i in 0..<Int(buffer.frameLength) { level = max(level, abs(channels[c][i])) }
+        for i in start..<max(start, end) { level = max(level, abs(channels[c][i])) }
     }
     return level
 }
@@ -103,6 +104,8 @@ struct MicClip {
 private final class TapState: @unchecked Sendable {
     private let lock = NSLock()
     private var levels = AudioRouter.Levels()
+    /// Peaks of each 50 ms of the signals the deck's screen graphs, oldest first.
+    private var chunks: [AudioRouter.Signal: [Float]] = [:]
     private var recording: [Float]?
     private var recordTarget = 0
     private var recordRate = 0.0
@@ -114,7 +117,22 @@ private final class TapState: @unchecked Sendable {
 
     var current: AudioRouter.Levels { lock.withLock { levels } }
 
-    func reset() { lock.withLock { levels = AudioRouter.Levels() } }
+    /// Taps arrive in ~100 ms buffers whatever size is asked for, so they're split into
+    /// 50 ms chunks here and the screen takes them in order.
+    func addChunks(_ signal: AudioRouter.Signal, _ buffer: AVAudioPCMBuffer) {
+        let size = max(1, Int(buffer.format.sampleRate * AudioRouter.chunkSeconds))
+        let peaks = stride(from: 0, to: Int(buffer.frameLength), by: size).map { peak(buffer, from: $0, count: size) }
+        lock.withLock {
+            chunks[signal, default: []].append(contentsOf: peaks)
+            if chunks[signal]!.count > 40 { chunks[signal]!.removeFirst(chunks[signal]!.count - 40) } // nobody reading
+        }
+    }
+
+    func takeChunks(_ signal: AudioRouter.Signal) -> [Float] {
+        lock.withLock { chunks.removeValue(forKey: signal) ?? [] }
+    }
+
+    func reset() { lock.withLock { levels = AudioRouter.Levels(); chunks = [:] } }
 
     func startRecording(frames: Int) {
         lock.withLock { recording = []; recordTarget = frames; finished = nil }
@@ -245,6 +263,7 @@ private final class MicCapture {
         engine.connect(input, to: sink, format: format)
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
             taps.set(\.mic, peak(buffer))
+            taps.addChunks(.input, buffer)
             taps.record(buffer)
         }
     }
@@ -293,6 +312,17 @@ final class AudioRouter {
         var output: Float = 0
     }
 
+    /// Signals the deck's screen graphs, in 50 ms chunks.
+    enum Signal {
+        /// The input device (its own engine; works without the output).
+        case input
+        /// The input as it enters processing, and as it leaves it. Both on the output engine,
+        /// so their chunks line up (apart from the processing's latency).
+        case unprocessed, processed
+    }
+
+    static let chunkSeconds = 0.05
+
     private(set) var status = Status()
     /// (sound key, isPlaying) — always on the main thread.
     var onPlaybackChange: ((String, Bool) -> Void)?
@@ -340,12 +370,18 @@ final class AudioRouter {
     private var voiceOwner: [String?]
     private var voiceToken: [Int]
     private var voiceIsOverlay: [Bool]
+    /// Length of the sound on each voice, and when it started (higher is newer).
+    private var voiceFrames: [AVAudioFrameCount]
+    private var voiceStarted: [Int]
+    private var starts = 0
     private var nextVoice = 0
 
     init() {
         voiceOwner = Array(repeating: nil, count: voiceCount)
         voiceToken = Array(repeating: 0, count: voiceCount)
         voiceIsOverlay = Array(repeating: false, count: voiceCount)
+        voiceFrames = Array(repeating: 0, count: voiceCount)
+        voiceStarted = Array(repeating: 0, count: voiceCount)
         listeners.onChange = { [weak self] listening in self?.setInputDemand(.listener, listening) }
     }
 
@@ -512,8 +548,12 @@ final class AudioRouter {
                 let filter = makeVoiceIsolation()
                 configure(filter, config, inputLive: false)
                 bus.add(voice, format: format, through: filter)
+                voice.installTap(onBus: 0, bufferSize: 1024, format: nil) { buffer, _ in
+                    taps.addChunks(.unprocessed, buffer)
+                }
                 filter.installTap(onBus: 0, bufferSize: 1024, format: nil) { buffer, _ in
                     taps.set(\.cleaned, peak(buffer))
+                    taps.addChunks(.processed, buffer)
                 }
                 built.micNode = voice
                 built.micFilter = filter
@@ -648,6 +688,9 @@ final class AudioRouter {
         let token = voiceToken[v]
         voiceOwner[v] = key
         voiceIsOverlay[v] = mode == .overlay
+        voiceFrames[v] = sound.frameLength
+        starts += 1
+        voiceStarted[v] = starts
 
         for (i, bus) in buses.enumerated() {
             let player = bus.voices[v]
@@ -682,6 +725,18 @@ final class AudioRouter {
         if !isPlaying(key) { onPlaybackChange?(key, false) }
     }
 
+    /// How far the newest copy of `key` has played, in seconds, and its length.
+    func progress(_ key: String) -> (elapsed: Double, duration: Double)? {
+        guard let v = (0..<voiceCount).filter({ voiceOwner[$0] == key }).max(by: { voiceStarted[$0] < voiceStarted[$1] })
+        else { return nil }
+        let duration = Double(voiceFrames[v]) / mixFormat.sampleRate
+        // The first running bus is the one `play` scheduled the completion on.
+        guard let player = runningBuses.first?.voices[v], let now = player.lastRenderTime,
+              let time = player.playerTime(forNodeTime: now), time.sampleRate > 0
+        else { return (0, duration) }
+        return (min(duration, max(0, Double(time.sampleTime) / time.sampleRate)), duration)
+    }
+
     private func voiceFinished(_ v: Int, token: Int) {
         guard voiceToken[v] == token, let key = voiceOwner[v] else { return }
         voiceOwner[v] = nil
@@ -713,6 +768,9 @@ final class AudioRouter {
     // MARK: Meters and mic test (main thread)
 
     var levels: Levels { taps.current }
+
+    /// 50 ms peaks of `signal` since the last call, oldest first. For one reader only (the deck's screen).
+    func takeChunks(_ signal: Signal) -> [Float] { taps.takeChunks(signal) }
 
     var canRecordTest: Bool { mic?.engine.isRunning == true }
 

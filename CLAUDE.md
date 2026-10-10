@@ -122,6 +122,10 @@ sandbox container: `Paths.home` uses `getpwuid`, and the entitlements grant a
   ~56 ms latency at any mic rate (the dry path is delay-aligned, so partial strength doesn't comb),
   zero when bypassed, ~50–70 dB off broadband noise, ~1 dB off speech. The censor bleep is a
   separate node on each bus, because the isolation would remove a bleep mixed into the mic.
+- **Taps ignore `bufferSize`**: they deliver 4800 frames (100 ms) at a time, 10 per second.
+  Anything faster (the deck's 20 fps input graph) has to split buffers into chunks
+  (`TapState.addChunks`) rather than poll the latest level, or alternate frames see no update.
+  The graph taps both sides of the noise removal on the output engine so the chunks line up.
 - Never call `AVAudioPlayerNode.play()` on a stopped engine (it raises an exception); use `runningBuses`.
 
 ## Stream Deck (Neo) protocol
@@ -138,6 +142,15 @@ page back/forward), and a 248×58 info screen.
 | Reset | Feature report, 32 bytes: `03 02` |
 
 - Images must be rotated 180°.
+- The info screen is a `ScreenFrame`: a static message, the playing sound's waveform
+  (`AssetCache.waveform`, peaks per pixel column) with a playhead taken from the player's
+  sample time (`AudioRouter.progress`), or the input level history. A 20 fps timer runs only
+  while a sound plays or the input is on. Levels are quantized and frames that compare equal
+  aren't sent, so silence costs no USB traffic. `setScreenImage` keeps only the newest
+  pending frame, so a slow device drops frames instead of falling behind.
+  `SOUNDBOARD_DEBUG=1` logs the average screen write time. Measured on the Neo (USB high
+  speed): ~5 KB per frame, a 2 ms write, and about +0.3% of a core over the ~7% the audio
+  engines use, so 20 fps leaves plenty of room.
 - The Elgato app opens the device exclusively (`0xe00002c5`), so `StreamDeckManager` retries every 2 s.
 - Other gen-2 models are in the table but untested.
 
