@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- App Sandbox with NO network entitlements: macOS itself blocks all
+         network access for this app, so it cannot phone home even if it tried. -->
+    <key>com.apple.security.app-sandbox</key>
+    <true/>
+    <!-- Stream Deck (USB HID) -->
+    <key>com.apple.security.device.usb</key>
+    <true/>
+    <!-- Microphone passthrough -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+    <!-- The only folder it can write to: ~/Library/Application Support/Soundboard -->
+    <key>com.apple.security.temporary-exception.files.home-relative-path.read-write</key>
+    <array>
+        <string>/Library/Application Support/Soundboard/</string>
+    </array>
+</dict>
+</plist>
