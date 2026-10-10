@@ -165,7 +165,14 @@ final class MainWindow: NSObject, NSWindowDelegate {
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 760),
                                   styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
             window.title = "Soundboard"
-            window.contentViewController = NSHostingController(rootView: MainView(model: model))
+            let host = NSHostingController(rootView: MainView(model: model))
+            // By default every SwiftUI update re-measures the whole window to keep its size
+            // constraints current, which made each meter frame lay out the entire Audio tab.
+            // The window sets its own minimum instead.
+            host.sizingOptions = []
+            window.contentViewController = host
+            window.contentMinSize = NSSize(width: 1100, height: 680)
+            window.setContentSize(NSSize(width: 1200, height: 760)) // the autosaved frame, if any, wins below
             window.isReleasedWhenClosed = false
             window.delegate = self
             window.setFrameAutosaveName("SoundboardMain")
