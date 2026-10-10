@@ -64,7 +64,8 @@ sandbox container: `Paths.home` uses `getpwuid`, and the entitlements grant a
 | `AssetCache.swift` | Decoded sounds (48 kHz stereo) and icons, cached by file mtime; renders `KeyFace` |
 | `Fetcher.swift` | App side of the helper protocol (`fetch` stream) + `PreviewPlayer` (streaming previews) |
 | `UI/MainWindow.swift` | The single window: tabs (Sounds & Keys, Sound Editor, Audio), status strip, main menu |
-| `UI/SettingsView.swift` | `SettingsModel` + Sounds & Keys tab (library, pad, inspectors), `AudioSettings` |
+| `UI/SettingsView.swift` | `SettingsModel` + Sounds & Keys tab (library, pad, inspectors) |
+| `UI/AudioTab.swift` | Audio tab (input → processing → test → output → monitor), meters, `AudioMonitor` |
 | `UI/ClipEditor.swift` | Sound Editor: sources (file/YouTube/website), waveform selection, export to WAV |
 | `SoundboardFetch/main.swift` | Helper: `info`, `preview`, `video`, `page`, `direct` modes |
 | `tools/import_voicemod.py` | One-off importer from Voicemod cache + Elgato profiles (writes a v1 config) |
@@ -101,6 +102,15 @@ sandbox container: `Paths.home` uses `getpwuid`, and the entitlements grant a
   `AVAudioEngineConfigurationChange` while the engine keeps running. Only rebuild if
   the engine stopped or the mic's sample rate changed (`needsRebuild`). The CoreAudio
   device listener also fires for no-op changes, so compare snapshots first.
+- **Setup runs in two stages** on `setupQueue`: `buildLocal` (mic + monitor) is installed first,
+  then `buildBroadcast` (the output device). A hung BlackHole therefore only blocks the output;
+  the input meter, monitor and input test still work. `install` merges each stage.
+- **Meters and the input test** use engine taps (`TapState`, lock-based; taps aren't real-time):
+  raw input on the mic engine's input node (works without the output), processed on the
+  isolation unit, mix on the broadcast mixer. The test records raw input and replays it on the
+  monitor bus through an offline copy of the input chain (`render`), so new settings apply to
+  the same recording. UI terms are generic (Input / Output / Monitor); config keys keep the old
+  `mic*` / `outputDevice` / `monitor*` names.
 - **Stuck drivers block HAL calls forever.** After `sudo killall coreaudiod`, BlackHole
   hung: even `say -a "BlackHole 2ch"` hangs. So device setup runs on
   `AudioRouter.setupQueue` (generation-guarded, `status.connecting` meanwhile), and

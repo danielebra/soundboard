@@ -43,7 +43,7 @@ and in your headphones.
 5. **In Zoom → Settings → Audio**, set *Microphone* to **BlackHole 2ch**. Also set
    tick *Original sound for musicians* (leave *High-fidelity music mode* off, and keep
    *Echo cancellation* on if you don't wear headphones). Otherwise Zoom filters out the
-   sound effects as "noise". Then turn on **Remove background noise** in Soundboard's
+   sound effects as "noise". Then turn on **Noise removal** in Soundboard's
    Audio tab: Soundboard cleans up your mic before mixing in the sounds, so you keep
    noise suppression without it eating the effects.
 
@@ -113,13 +113,19 @@ allowed to use; some sites' terms forbid downloading.
 
 ### Audio
 
-Choose which device Zoom hears, your mic and where you hear sounds yourself, and set
-the volumes and key brightness.
+Laid out in the order the signal flows, with a live level meter at each stage:
 
-**Remove background noise** runs Apple's voice isolation (the same engine as the macOS
-Voice Isolation mic mode) on your mic only, before the sounds are mixed in. It runs on
-your Mac, adds about 56 ms of delay to your voice while it's on, and nothing while off.
-**Strength** blends between the cleaned and the original mic.
+- **Input**: your mic (or any input device), and whether it's routed to the output.
+- **Input processing**: **Noise removal** runs Apple's voice isolation (the same engine as
+  the macOS Voice Isolation mic mode) on the input only, before the sounds are mixed in.
+  It runs on your Mac and adds about 56 ms of delay while it's on, none while off.
+  **Strength** blends between the processed and the unprocessed input.
+- **Test input**: record 5 seconds, then play it back processed or unprocessed. It plays
+  on the monitor device only, never to the output. Change the settings and play again to
+  hear the same recording with them.
+- **Output**: the device the mix goes to (BlackHole 2ch, which your call app uses as its
+  microphone), and the input and sounds volumes in that mix.
+- **Monitor**: where you hear the sounds and input tests yourself.
 
 ## Using it
 
@@ -143,14 +149,14 @@ soon as you save.
   "version": 2,
   "outputDevice": "BlackHole 2ch",       // what Zoom listens to
   "micDevice": "fifine Microphone",      // null = macOS default input
-  "micPassthrough": true,                // mix your mic into the output
+  "micPassthrough": true,                // route the input to the output
   "micVolume": 1.0,
-  "noiseSuppression": true,              // voice isolation on the mic (not the sounds)
-  "noiseSuppressionStrength": 1.0,       // 0…1 mix of cleaned vs original mic
-  "monitorDevice": null,                 // where you hear sounds; null = default output
+  "noiseSuppression": true,              // noise removal on the input (not the sounds)
+  "noiseSuppressionStrength": 1.0,       // 0…1 mix of processed vs unprocessed input
+  "monitorDevice": null,                 // monitor device; null = default output
   "monitor": true,
   "monitorVolume": 0.5,
-  "soundVolume": 0.8,                    // sound level that Zoom hears
+  "soundVolume": 0.8,                    // sounds volume in the output mix
   "stopOthers": true,                    // a toggle sound stops other toggle sounds
   "brightness": 70,
   "library": [                           // every sound you've added, on the pad or not
