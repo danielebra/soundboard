@@ -59,6 +59,7 @@ sandbox container: `Paths.home` uses `getpwuid`, and the entitlements grant a
 | `AudioRouter.swift` | The three AVAudioEngines, voice pool, play/stop/overlay, bleep (censor), async device setup |
 | `RingBuffer.swift` | Lock-free SPSC mic buffer with drift control (target 20 ms, resync at 80 ms) |
 | `AudioDevices.swift` | CoreAudio device enumeration (timeout-guarded), change listener with snapshot dedupe |
+| `AudioListeners.swift` | Whether another app reads input from the output device (CoreAudio process objects) |
 | `StreamDeck.swift` | IOHIDManager + Stream Deck gen-2 protocol; retries when another app holds the device |
 | `KeyRenderer.swift` | CoreGraphics key/screen images, JPEG (rotated 180°) for the device |
 | `AssetCache.swift` | Decoded sounds (48 kHz stereo) and icons, cached by file mtime; renders `KeyFace` |
@@ -105,6 +106,19 @@ sandbox container: `Paths.home` uses `getpwuid`, and the entitlements grant a
 - **Setup runs in two stages** on `setupQueue`: `buildLocal` (mic + monitor) is installed first,
   then `buildBroadcast` (the output device). A hung BlackHole therefore only blocks the output;
   the input meter, monitor and input test still work. `install` merges each stage.
+- **The input opens on demand.** The mic engine is built but not started; `InputDemand` starts it
+  while another app reads from the output device (`AudioListeners`) or the Audio tab is open, and
+  pauses it 3 s after the last reason goes away (noise removal is bypassed while paused). So the
+  mic, macOS's mic indicator and the isolation model only run during calls. `AudioListeners` uses
+  the macOS 14 process objects (`kAudioHardwarePropertyProcessObjectList`, then per process
+  `IsRunningInput` + input-scope `Devices`), with property listeners, no polling; it works from the
+  sandbox. Verified with Zoom: Test Mic shows `us.zoom.xos` reading BlackHole, and it drops off
+  when the test stops. A process's device list includes every device it has open in each
+  direction the device supports (Zoom's output list includes BlackHole too), so an app that only
+  plays to BlackHole while recording another mic also counts; that errs toward leaving the mic on.
+  Soundboard excludes its own pid. If the query fails it reports "listening", so calls never lose
+  the mic. A paused mic engine isn't running on purpose, so `needsRebuild` only treats "stopped"
+  as a failure while `status.micLive`.
 - **Meters and the input test** use engine taps (`TapState`, lock-based; taps aren't real-time):
   raw input on the mic engine's input node (works without the output), processed on the
   isolation unit, mix on the broadcast mixer. The test records raw input and replays it on the

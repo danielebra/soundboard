@@ -310,7 +310,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
     /// something live: a playing sound's progress or the input level.
     private func redrawScreen() {
         let live = decks.deck?.model.screen != nil && censorKey == nil
-            && (!nowPlaying.isEmpty || router.status.mic != nil)
+            && (!nowPlaying.isEmpty || router.status.micLive)
         if live, screenTimer == nil {
             let timer = Timer(timeInterval: 1.0 / 20, repeats: true) { [weak self] _ in self?.screenTick() }
             timer.tolerance = 0.01 // lets macOS batch the wakeups
@@ -360,12 +360,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
             return .playing(title: title, info: String(format: "-%ld:%02ld", remaining / 60, remaining % 60),
                             peaks: peaks, played: played)
         }
-        if censorKey == nil, status.mic != nil {
+        if censorKey == nil, status.micLive {
             // Noise removal runs on the output engine, so it's only on while the output is.
             return .input(title: pageInfo.isEmpty ? "Soundboard" : pageInfo, warning: warning,
                           noiseRemoval: config.noiseSuppression && status.output != nil, levels: inputLevels)
         }
-        let mic = config.micPassthrough ? "input off" : nil
+        let mic = status.mic != nil ? "input standby" : (config.micPassthrough ? "input off" : nil)
         let subtitle = [pageInfo, warning ?? mic].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
         return .message(title: censorKey != nil ? "BLEEP" : "Soundboard", subtitle: subtitle)
     }
@@ -446,7 +446,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
             info(status.output.map { "✓ Output: \($0)" } ?? "✗ \(status.outputProblem ?? "No output")")
         }
         if config.micPassthrough, status.mic != nil || status.micProblem != nil {
-            info(status.mic.map { "✓ Input: \($0)" } ?? "✗ \(status.micProblem ?? "Input unavailable")")
+            info(status.mic.map { "✓ Input: \($0)\(status.micLive ? "" : " (standby until an app listens)")" }
+                ?? "✗ \(status.micProblem ?? "Input unavailable")")
         }
         if let monitor = status.monitor { info("✓ Monitor: \(monitor)") }
         if let configError { info("✗ \(configError)") }
@@ -501,7 +502,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
         let s = router.status
         return AppStatus(deck: decks.deck?.model.name, deckBusy: decks.busyDevice != nil,
                          output: s.output, outputProblem: s.outputProblem, connecting: s.connecting,
-                         mic: s.mic, micProblem: s.micProblem, micPassthrough: config.micPassthrough, monitor: s.monitor)
+                         mic: s.mic, micProblem: s.micProblem, micLive: s.micLive, micPassthrough: config.micPassthrough,
+                         monitor: s.monitor)
     }
 
     private func publishStatus() {

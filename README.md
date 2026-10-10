@@ -115,7 +115,9 @@ allowed to use; some sites' terms forbid downloading.
 
 Laid out in the order the signal flows, with a live level meter at each stage:
 
-- **Input**: your mic (or any input device), and whether it's routed to the output.
+- **Input**: your mic (or any input device), and whether it's routed to the output. The
+  mic is only opened while another app (Zoom) is listening to the output, or while this tab
+  is open; otherwise it's on standby, so macOS's mic indicator stays off between calls.
 - **Input processing**: **Noise removal** runs Apple's voice isolation (the same engine as
   the macOS Voice Isolation mic mode) on the input only, before the sounds are mixed in.
   It runs on your Mac and adds about 56 ms of delay while it's on, none while off.
@@ -135,7 +137,7 @@ Laid out in the order the signal flows, with a live level meter at each stage:
 - A green border shows what's playing.
 - **The two touch buttons under the Neo's screen** switch pages.
 - **The Neo's screen** shows the playing sound's waveform, with how far it has got and
-  the time left. Otherwise, while your input is on, it shows your voice level over the
+  the time left. Otherwise, while your input is on (during a call), it shows your voice level over the
   last few seconds. Green is what Zoom hears and grey is the raw input, so you can see
   noise removal working. Red means the input clipped. A green person-with-waves icon
   (Apple's Voice Isolation symbol) means noise removal is on. After a few seconds of silence the

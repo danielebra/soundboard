@@ -55,8 +55,9 @@ final class RingBuffer: @unchecked Sendable {
         writeIndex.store(w + n, ordering: .releasing)
     }
 
-    /// Render thread. Always fills `count` samples (silence on underrun).
-    func read(into out: UnsafeMutablePointer<Float>, count: Int) {
+    /// Render thread. Always fills `count` samples (silence on underrun); returns how many were audio.
+    @discardableResult
+    func read(into out: UnsafeMutablePointer<Float>, count: Int) -> Int {
         var r = readIndex.load(ordering: .relaxed)
         let w = writeIndex.load(ordering: .acquiring)
         var available = w - r
@@ -64,7 +65,7 @@ final class RingBuffer: @unchecked Sendable {
         if !primed {
             guard available >= target else {
                 out.update(repeating: 0, count: count)
-                return
+                return 0
             }
             primed = true
         }
@@ -80,5 +81,6 @@ final class RingBuffer: @unchecked Sendable {
             primed = false
         }
         readIndex.store(r + n, ordering: .releasing)
+        return n
     }
 }
