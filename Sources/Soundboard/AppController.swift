@@ -130,6 +130,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
 
     private func rebuildAudio() {
         router.rebuild(config: config, micAllowed: micAllowed)
+        let s = router.status
+        NSLog("Soundboard: output=%@ monitor=%@ mic=%@",
+              s.output ?? "✗ \(s.outputProblem ?? "-")", s.monitor ?? "off", s.mic ?? "✗ \(s.micProblem ?? "off")")
         redrawScreen()
     }
 
