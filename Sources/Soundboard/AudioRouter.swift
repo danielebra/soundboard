@@ -103,18 +103,27 @@ struct MicClip {
 private final class TapState: @unchecked Sendable {
     private let lock = NSLock()
     private var levels = AudioRouter.Levels()
+    /// The loudest levels since `takeHeld`, so a slower reader doesn't miss short peaks.
+    private var held = AudioRouter.Levels()
     private var recording: [Float]?
     private var recordTarget = 0
     private var recordRate = 0.0
     private var finished: MicClip?
 
     func set(_ keyPath: WritableKeyPath<AudioRouter.Levels, Float>, _ value: Float) {
-        lock.withLock { levels[keyPath: keyPath] = value }
+        lock.withLock {
+            levels[keyPath: keyPath] = value
+            held[keyPath: keyPath] = max(held[keyPath: keyPath], value)
+        }
     }
 
     var current: AudioRouter.Levels { lock.withLock { levels } }
 
-    func reset() { lock.withLock { levels = AudioRouter.Levels() } }
+    func takeHeld() -> AudioRouter.Levels {
+        lock.withLock { defer { held = AudioRouter.Levels() }; return held }
+    }
+
+    func reset() { lock.withLock { levels = AudioRouter.Levels(); held = AudioRouter.Levels() } }
 
     func startRecording(frames: Int) {
         lock.withLock { recording = []; recordTarget = frames; finished = nil }
@@ -319,12 +328,18 @@ final class AudioRouter {
     private var voiceOwner: [String?]
     private var voiceToken: [Int]
     private var voiceIsOverlay: [Bool]
+    /// Length of the sound on each voice, and when it started (higher is newer).
+    private var voiceFrames: [AVAudioFrameCount]
+    private var voiceStarted: [Int]
+    private var starts = 0
     private var nextVoice = 0
 
     init() {
         voiceOwner = Array(repeating: nil, count: voiceCount)
         voiceToken = Array(repeating: 0, count: voiceCount)
         voiceIsOverlay = Array(repeating: false, count: voiceCount)
+        voiceFrames = Array(repeating: 0, count: voiceCount)
+        voiceStarted = Array(repeating: 0, count: voiceCount)
     }
 
     var isCensoring: Bool { realtime.censor.load(ordering: .relaxed) }
@@ -564,6 +579,9 @@ final class AudioRouter {
         let token = voiceToken[v]
         voiceOwner[v] = key
         voiceIsOverlay[v] = mode == .overlay
+        voiceFrames[v] = sound.frameLength
+        starts += 1
+        voiceStarted[v] = starts
 
         for (i, bus) in buses.enumerated() {
             let player = bus.voices[v]
@@ -598,6 +616,18 @@ final class AudioRouter {
         if !isPlaying(key) { onPlaybackChange?(key, false) }
     }
 
+    /// How far the newest copy of `key` has played, in seconds, and its length.
+    func progress(_ key: String) -> (elapsed: Double, duration: Double)? {
+        guard let v = (0..<voiceCount).filter({ voiceOwner[$0] == key }).max(by: { voiceStarted[$0] < voiceStarted[$1] })
+        else { return nil }
+        let duration = Double(voiceFrames[v]) / mixFormat.sampleRate
+        // The first running bus is the one `play` scheduled the completion on.
+        guard let player = runningBuses.first?.voices[v], let now = player.lastRenderTime,
+              let time = player.playerTime(forNodeTime: now), time.sampleRate > 0
+        else { return (0, duration) }
+        return (min(duration, max(0, Double(time.sampleTime) / time.sampleRate)), duration)
+    }
+
     private func voiceFinished(_ v: Int, token: Int) {
         guard voiceToken[v] == token, let key = voiceOwner[v] else { return }
         voiceOwner[v] = nil
@@ -623,6 +653,9 @@ final class AudioRouter {
     // MARK: Meters and mic test (main thread)
 
     var levels: Levels { taps.current }
+
+    /// The loudest levels since the last call. For one reader only (the deck's screen).
+    func takeHeldLevels() -> Levels { taps.takeHeld() }
 
     var canRecordTest: Bool { mic?.engine.isRunning == true }
 
