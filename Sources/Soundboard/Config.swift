@@ -30,7 +30,7 @@ struct ButtonConfig: Codable, Equatable {
     var action: Action?
 }
 
-struct Config: Codable {
+struct Config: Codable, Equatable {
     /// Virtual device Zoom listens to. Sounds + your mic are mixed into it.
     var outputDevice = "BlackHole 2ch"
     /// Your real microphone. `nil` uses the macOS default input.
