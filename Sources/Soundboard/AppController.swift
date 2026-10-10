@@ -217,7 +217,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
         guard let deck = decks.deck, let screen = deck.model.screen else { return }
         let playingLabel = nowPlaying.last.flatMap { key -> String? in
             let parts = key.split(separator: ".").compactMap { Int($0) }
-            return parts.count == 2 ? (button(page: parts[0], index: parts[1])?.label ?? "Sound") : nil
+            guard parts.count == 2, let b = button(page: parts[0], index: parts[1]) else { return nil }
+            return b.name ?? b.label ?? "Sound"
         }
         let title = censorKey != nil ? "BLEEP" : playingLabel.map { "▶ \($0)" } ?? "Soundboard"
         var subtitle = config.pages.count > 1 ? "Page \(page + 1) of \(config.pages.count)" : ""

@@ -9,6 +9,8 @@ struct ButtonConfig: Codable, Equatable {
     }
 
     var label: String?
+    /// Shown on the Neo's screen while playing (defaults to `label`). Handy for image-only keys.
+    var name: String?
     /// File inside `sounds/`, or an absolute / `~/` path.
     var sound: String?
     /// Image inside `icons/` (png, jpg, webp, gif), or an absolute / `~/` path.
