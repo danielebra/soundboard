@@ -7,13 +7,12 @@ if arguments.count >= 3, arguments[1] == "--preview" {
     let out = URL(fileURLWithPath: arguments[2], isDirectory: true)
     try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
     try Paths.ensureExists()
-    let config = try Config.load()
+    var config = try Config.load()
+    _ = config.upgrade(soundFiles: Paths.soundFiles())
+    let assets = AssetCache()
     for (p, keys) in config.pages.enumerated() {
         for (i, button) in keys.enumerated() {
-            let image = KeyRenderer.key(size: 96, label: button?.label,
-                                        image: button?.image.flatMap { KeyRenderer.loadImage(Paths.resolve($0, in: Paths.icons)) },
-                                        background: KeyRenderer.color(hex: button?.color),
-                                        active: false, warning: false)
+            let image = assets.render(config.face(button), size: 96, active: false)
             try KeyRenderer.png(image).write(to: out.appending(path: "page\(p + 1)-key\(i + 1).png"))
         }
     }

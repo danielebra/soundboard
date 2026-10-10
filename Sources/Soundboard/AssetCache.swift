@@ -27,15 +27,18 @@ final class AssetCache {
         return image
     }
 
-    func render(_ button: ButtonConfig?, size: Int, active: Bool) -> CGImage {
-        var missingSound = false
-        if let button, button.action == nil, let path = button.sound, case .failure = sound(path) {
-            missingSound = true
-        }
-        return KeyRenderer.key(size: size, label: button?.label,
-                               image: button?.image.flatMap { icon($0) },
-                               background: button == nil ? CGColor(gray: 0, alpha: 1) : KeyRenderer.color(hex: button?.color),
-                               active: active, warning: missingSound)
+    func render(_ face: KeyFace, size: Int, active: Bool) -> CGImage {
+        var warning = face.dangling
+        if let file = face.soundFile, case .failure = sound(file) { warning = true }
+        return KeyRenderer.key(size: size, label: face.label,
+                               image: face.image.flatMap { icon($0) },
+                               background: face.isEmpty ? CGColor(gray: 0, alpha: 1) : KeyRenderer.color(hex: face.color),
+                               active: active, warning: warning)
+    }
+
+    func isBroken(_ file: String) -> Bool {
+        if case .failure = sound(file) { return true }
+        return false
     }
 
     private static func modified(_ url: URL) -> Date? {
