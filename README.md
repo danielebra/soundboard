@@ -128,6 +128,7 @@ Laid out in the order the signal flows, with a live level meter at each stage:
 - **Output**: the device the mix goes to (BlackHole 2ch, which your call app uses as its
   microphone), and the input and sounds volumes in that mix.
 - **Monitor**: where you hear the sounds and input tests yourself.
+- **On-screen palette**: which screen corner opens the palette (see below), or Off.
 
 ## Using it
 
@@ -144,6 +145,20 @@ Laid out in the order the signal flows, with a live level meter at each stage:
   screen stops updating.
 - **A `censor` key** (hold it) mutes your mic and sends a bleep instead.
 - **A `stop` key** stops everything.
+
+### Without a Stream Deck
+
+Rest the pointer in the **top-right corner** of the screen for a moment and a small
+palette fans out of it: the same keys as the pad, on the same page, with the page
+switcher underneath when you have more than one. Click a key to play it; hold Bleep
+like you would on the deck. The palette never takes focus, so Zoom stays in front, and
+it folds away when the pointer leaves it or you click elsewhere. Menu → **Show Palette**
+opens it too.
+
+Change the corner (or turn it off) on the Audio tab. Pick one macOS isn't using for its
+own Hot Corners (System Settings › Desktop & Dock › Hot Corners). On several displays,
+only corners that don't touch another display count. The corner only watches where the
+pointer is (no keyboard monitoring, and no Accessibility permission).
 
 ## Configuration
 
@@ -166,6 +181,8 @@ soon as you save.
   "soundVolume": 0.8,                    // sounds volume in the output mix
   "stopOthers": true,                    // a toggle sound stops other toggle sounds
   "brightness": 70,
+  "hotCorner": "topRight",               // opens the on-screen palette: topLeft, topRight,
+                                         // bottomLeft, bottomRight or off
   "library": [                           // every sound you've added, on the pad or not
     { "id": "airhorn", "name": "Airhorn", "file": "airhorn.mp3", "label": "Airhorn", "color": "#dc2626" },
     { "id": "meow", "name": "Meow", "file": "meow.wav", "image": "cat.png", "volume": 0.6, "mode": "overlay" }

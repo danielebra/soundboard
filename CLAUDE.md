@@ -61,6 +61,7 @@ sandbox container: `Paths.home` uses `getpwuid`, and the entitlements grant a
 | `AudioDevices.swift` | CoreAudio device enumeration (timeout-guarded), change listener with snapshot dedupe |
 | `AudioListeners.swift` | Whether another app reads input from the output device (CoreAudio process objects) |
 | `StreamDeck.swift` | IOHIDManager + Stream Deck gen-2 protocol; retries when another app holds the device |
+| `Palette.swift` | On-screen palette for use without a deck: `CornerTrigger` (hot corner) + non-activating panel |
 | `KeyRenderer.swift` | CoreGraphics key/screen images, JPEG (rotated 180°) for the device |
 | `AssetCache.swift` | Decoded sounds (48 kHz stereo) and icons, cached by file mtime; renders `KeyFace` |
 | `Fetcher.swift` | App side of the helper protocol (`fetch` stream) + `PreviewPlayer` (streaming previews) |
@@ -165,6 +166,16 @@ page back/forward), and a 248×58 info screen.
   `SOUNDBOARD_DEBUG=1` logs the average screen write time. Measured on the Neo (USB high
   speed): ~5 KB per frame, a 2 ms write, and about +0.3% of a core over the ~7% the audio
   engines use, so 20 fps leaves plenty of room.
+- **Without a deck**, `Palette` mirrors the current page (`keyLayout` falls back to the Neo's
+  4×2) and calls the same `AppController.press(index:pressed:)` / `turnPage(by:)` as the deck.
+  `CornerTrigger` uses `NSEvent` mouse-moved monitors (global + local); mouse monitors need no
+  Accessibility permission and work from the sandbox (verified). It waits 0.15 s in the corner,
+  then re-arms once the pointer leaves. The panel is `.nonactivatingPanel` at `.popUpMenu` level
+  and can't become key, so clicks never take focus from Zoom. It closes on a click elsewhere
+  (global mouse-down monitor) or when a 10 Hz poll, which runs only while it's open, finds the pointer gone.
+  `open … --args --palette --snapshot 2` shows and snapshots it (rendered from its layers).
+  Synthetic mouse events from the agent shell are dropped (no Accessibility), so the hot corner
+  itself has to be tried by hand.
 - The Elgato app opens the device exclusively (`0xe00002c5`), so `StreamDeckManager` retries every 2 s.
 - Other gen-2 models are in the table but untested.
 
