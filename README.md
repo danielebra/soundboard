@@ -156,7 +156,7 @@ How you play the keys, and app-level options:
 
 ### Without a Stream Deck
 
-Rest the pointer in the **top-right corner** of the screen for a moment and a small
+Rest the pointer in the **bottom-left corner** of the screen for a moment and a small
 palette fans out of it: the same keys as the pad, on the same page, with the page
 switcher underneath when you have more than one. Click a key to play it; hold Bleep
 like you would on the deck. The palette never takes focus, so Zoom stays in front, and
@@ -189,7 +189,7 @@ soon as you save.
   "soundVolume": 0.8,                    // sounds volume in the output mix
   "stopOthers": true,                    // a toggle sound stops other toggle sounds
   "brightness": 70,
-  "hotCorner": "topRight",               // opens the on-screen palette: topLeft, topRight,
+  "hotCorner": "bottomLeft",             // opens the on-screen palette: topLeft, topRight,
                                          // bottomLeft, bottomRight or off
   "library": [                           // every sound you've added, on the pad or not
     { "id": "airhorn", "name": "Airhorn", "file": "airhorn.mp3", "label": "Airhorn", "color": "#dc2626" },

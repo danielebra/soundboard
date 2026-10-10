@@ -76,7 +76,7 @@ final class Palette {
     private var panel: NSPanel?
     private var view: PaletteView?
     private var screenFrame = NSRect.zero
-    private var corner: HotCorner = .topRight
+    private var corner: HotCorner = .bottomLeft
     private var watch: Timer?
     private var clickMonitor: Any?
     private var entered = false
@@ -98,7 +98,7 @@ final class Palette {
         guard let screen = screen ?? NSScreen.main ?? NSScreen.screens.first else { return }
         let (panel, view) = makePanel()
         screenFrame = screen.frame
-        self.corner = corner == .off ? .topRight : corner
+        self.corner = corner == .off ? .bottomLeft : corner
         self.stays = stays
         entered = false
         outsideSince = nil
@@ -255,7 +255,7 @@ private final class PaletteView: NSView {
 
     var onPress: ((Int, Bool) -> Void)?
     var onTurn: ((Int) -> Void)?
-    var corner: HotCorner = .topRight
+    var corner: HotCorner = .bottomLeft
     var scale: CGFloat = 2 {
         didSet { allLayers.forEach { $0.contentsScale = scale } }
     }

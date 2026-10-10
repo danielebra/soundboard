@@ -113,7 +113,7 @@ struct Config: Codable, Equatable {
     var stopOthers = true
     var brightness = 70
     /// Resting the pointer here opens a palette of the pad's keys, for use without a Stream Deck.
-    var hotCorner: HotCorner = .topRight
+    var hotCorner: HotCorner = .bottomLeft
     /// Every sound you've added, whether or not it's on a key.
     var library: [SoundEntry] = []
     /// Each page is a row-major list of keys (left→right, top→bottom). `null` = blank key.
@@ -243,7 +243,7 @@ struct Config: Codable, Equatable {
       "soundVolume": 0.8,
       "stopOthers": true,
       "brightness": 70,
-      "hotCorner": "topRight",
+      "hotCorner": "bottomLeft",
       "library": [
         { "id": "ding", "name": "Ding", "label": "Ding", "file": "/System/Library/Sounds/Glass.aiff", "color": "#2563eb" },
         { "id": "boop", "name": "Boop", "label": "Boop", "file": "/System/Library/Sounds/Submarine.aiff", "color": "#7c3aed" },
