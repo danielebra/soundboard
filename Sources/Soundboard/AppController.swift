@@ -95,10 +95,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
     }
 
     /// Editors either rewrite the file in place or replace it, so watch both the file and its folder.
+    /// The sounds/icons folders are watched too, so dropping in a missing file fixes its key.
     private func watchConfig() {
         watchers.forEach { $0.cancel() }
         watchers.removeAll()
-        for url in [Paths.root, Paths.config] {
+        for url in [Paths.root, Paths.config, Paths.sounds, Paths.icons] {
             let fd = open(url.path, O_EVTONLY)
             guard fd >= 0 else { continue }
             let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .delete, .rename], queue: .main)
