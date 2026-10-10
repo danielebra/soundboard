@@ -24,6 +24,7 @@ struct AppStatus: Equatable {
     var connecting: String?
     var mic: String?
     var micProblem: String?
+    var micLive = false
     var micPassthrough = true
     var monitor: String?
 }
@@ -112,7 +113,7 @@ private struct StatusStrip: View {
                      ok: status.output != nil, systemImage: "speaker.wave.2")
             }
             if status.micPassthrough {
-                item(status.mic.map { "Input: \($0)" } ?? (status.micProblem ?? "Input off"),
+                item(status.mic.map { "Input: \($0)\(status.micLive ? "" : " · standby")" } ?? (status.micProblem ?? "Input off"),
                      ok: status.mic != nil, systemImage: "mic")
             }
             if let monitor = status.monitor {
@@ -173,6 +174,7 @@ final class MainWindow: NSObject, NSWindowDelegate {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
+        if model.tab == .audio { model.audio.start() } // reopened on the Audio tab
     }
 
     func showPad(page: Int? = nil, key: Int? = nil) {
@@ -222,6 +224,7 @@ final class MainWindow: NSObject, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         model?.editor.player.pause()
+        model?.audio.stop() // a hidden window doesn't always get onDisappear; this frees the input
         NSApp.setActivationPolicy(.accessory)
     }
 

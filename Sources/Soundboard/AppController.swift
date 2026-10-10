@@ -306,7 +306,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
         let warning = configError != nil ? "config error"
             : status.connecting != nil ? "connecting audio…"
             : status.outputProblem != nil ? "no output" : nil
-        let mic = status.mic != nil ? "input on" : (config.micPassthrough ? "input off" : nil)
+        let mic = status.mic != nil ? (status.micLive ? "input on" : "input standby")
+            : (config.micPassthrough ? "input off" : nil)
         subtitle = [subtitle, warning ?? mic].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
         let image = KeyRenderer.screen(width: screen.width, height: screen.height, title: title, subtitle: subtitle)
         deck.setScreenImage(KeyRenderer.jpeg(image))
@@ -346,7 +347,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
             info(status.output.map { "✓ Output: \($0)" } ?? "✗ \(status.outputProblem ?? "No output")")
         }
         if config.micPassthrough, status.mic != nil || status.micProblem != nil {
-            info(status.mic.map { "✓ Input: \($0)" } ?? "✗ \(status.micProblem ?? "Input unavailable")")
+            info(status.mic.map { "✓ Input: \($0)\(status.micLive ? "" : " (standby until an app listens)")" }
+                ?? "✗ \(status.micProblem ?? "Input unavailable")")
         }
         if let monitor = status.monitor { info("✓ Monitor: \(monitor)") }
         if let configError { info("✗ \(configError)") }
@@ -401,7 +403,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
         let s = router.status
         return AppStatus(deck: decks.deck?.model.name, deckBusy: decks.busyDevice != nil,
                          output: s.output, outputProblem: s.outputProblem, connecting: s.connecting,
-                         mic: s.mic, micProblem: s.micProblem, micPassthrough: config.micPassthrough, monitor: s.monitor)
+                         mic: s.mic, micProblem: s.micProblem, micLive: s.micLive, micPassthrough: config.micPassthrough,
+                         monitor: s.monitor)
     }
 
     private func publishStatus() {

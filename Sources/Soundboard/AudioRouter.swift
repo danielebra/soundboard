@@ -253,6 +253,9 @@ private final class MicCapture {
         engine.prepare()
         try engine.start()
     }
+
+    /// The device's rate changed since the graph was built (possible while it was paused).
+    var rateChanged: Bool { engine.inputNode.outputFormat(forBus: 0).sampleRate != sampleRate }
 }
 
 /// Routes sounds (and your microphone) to the virtual device Zoom listens to, and
@@ -266,6 +269,18 @@ final class AudioRouter {
         var monitor: String?
         var mic: String?
         var micProblem: String?
+        /// The input is open. It's built but paused until something needs it (`InputDemand`).
+        var micLive = false
+    }
+
+    /// Why the input should be open. With no reason it's paused, so the mic (and the
+    /// noise removal) only run while an app listens to the output or the Audio tab is open.
+    struct InputDemand: OptionSet {
+        let rawValue: Int
+        /// Another app reads from the output device (Zoom in a call).
+        static let listener = InputDemand(rawValue: 1)
+        /// The Audio tab's meters and input test.
+        static let audioTab = InputDemand(rawValue: 2)
     }
 
     /// Peak levels, 0…1.
@@ -301,6 +316,11 @@ final class AudioRouter {
     private var monitorTone: AVAudioSourceNode?
     private let setupQueue = DispatchQueue(label: "soundboard.audio.setup")
     private var generation = 0
+    private let listeners = AudioListeners()
+    private var inputDemand: InputDemand = []
+    private var pauseWork: DispatchWorkItem?
+    /// For noise removal, which is bypassed while the input is paused.
+    private var settings = Config()
 
     private struct Built {
         var broadcast: OutputBus?
@@ -311,6 +331,7 @@ final class AudioRouter {
         var broadcastTone: AVAudioSourceNode?
         var monitorTone: AVAudioSourceNode?
         var previewPlayer: AVAudioPlayerNode?
+        var outputDevice: AudioDeviceID?
         var status = Status()
         /// Built by `buildBroadcast` (virtual device) rather than `buildLocal` (mic, headphones).
         var isBroadcastStage = false
@@ -325,6 +346,7 @@ final class AudioRouter {
         voiceOwner = Array(repeating: nil, count: voiceCount)
         voiceToken = Array(repeating: 0, count: voiceCount)
         voiceIsOverlay = Array(repeating: false, count: voiceCount)
+        listeners.onChange = { [weak self] listening in self?.setInputDemand(.listener, listening) }
     }
 
     var isCensoring: Bool { realtime.censor.load(ordering: .relaxed) }
@@ -335,6 +357,7 @@ final class AudioRouter {
 
     func rebuild(config: Config, micAllowed: Bool) {
         teardown()
+        settings = config
         generation += 1
         let generation = self.generation
         status = Status(connecting: config.outputDevice)
@@ -368,11 +391,13 @@ final class AudioRouter {
             micNode = built.micNode
             micFilter = built.micFilter
             broadcastTone = built.broadcastTone
+            applyNoiseRemoval()
         }
         if built.isBroadcastStage {
             status.connecting = nil
             status.output = built.status.output
             status.outputProblem = built.status.outputProblem
+            listeners.watch(built.outputDevice)
         } else {
             mic = built.mic
             monitor = built.monitor
@@ -381,8 +406,10 @@ final class AudioRouter {
             status.mic = built.status.mic
             status.micProblem = built.status.micProblem
             status.monitor = built.status.monitor
+            status.micLive = false
             taps.reset()
         }
+        if mic != nil { updateInput() }
 
         // A device change can stop an engine; rebuild only then. Engines also post this
         // notification harmlessly right after we move them off the default device —
@@ -416,8 +443,8 @@ final class AudioRouter {
                     built.status.micProblem = "Input is the same device as the output — pick a different input"
                 } else {
                     do {
+                        // Started by `updateInput` once something needs it.
                         let mic = try MicCapture(device: device.id, taps: taps)
-                        try mic.start()
                         built.mic = mic
                         built.status.mic = device.name
                     } catch {
@@ -463,6 +490,7 @@ final class AudioRouter {
             built.status.outputProblem = "“\(config.outputDevice)” not found — is BlackHole installed?"
             return built
         }
+        built.outputDevice = device.id
         do {
             let bus = try OutputBus(device: device.id, voiceCount: voiceCount)
             bus.effects.outputVolume = config.soundVolume
@@ -470,18 +498,19 @@ final class AudioRouter {
                 let format = AVAudioFormat(standardFormatWithSampleRate: mic.sampleRate, channels: 1)!
                 let ring = mic.ring
                 let state = realtime
-                let voice = AVAudioSourceNode(format: format) { _, _, frames, list in
+                let voice = AVAudioSourceNode(format: format) { isSilence, _, frames, list in
                     let out = UnsafeMutableAudioBufferListPointer(list)
                     guard let data = out[0].mData?.assumingMemoryBound(to: Float.self) else { return noErr }
                     let n = Int(frames)
-                    ring.read(into: data, count: n) // keep draining while censored
+                    let read = ring.read(into: data, count: n) // keep draining while censored
                     if state.censor.load(ordering: .relaxed) { data.update(repeating: 0, count: n) }
+                    if read == 0 || state.censor.load(ordering: .relaxed) { isSilence.pointee = true }
                     return noErr
                 }
                 voice.volume = config.micVolume
                 // Always in the graph so it can be switched without restarting the mic.
                 let filter = makeVoiceIsolation()
-                configure(filter, config)
+                configure(filter, config, inputLive: false)
                 bus.add(voice, format: format, through: filter)
                 filter.installTap(onBus: 0, bufferSize: 1024, format: nil) { buffer, _ in
                     taps.set(\.cleaned, peak(buffer))
@@ -509,12 +538,67 @@ final class AudioRouter {
     }
 
     private func needsRebuild(_ engine: AVAudioEngine) -> Bool {
-        if !engine.isRunning { return true }
         if let mic, engine === mic.engine {
-            // The ring buffer and mixer were set up for the old rate.
-            return engine.inputNode.outputFormat(forBus: 0).sampleRate != mic.sampleRate
+            // The ring buffer and mixer were set up for the old rate. A paused input isn't
+            // running on purpose (and a rebuild would leave it paused, then post this again).
+            return (status.micLive && !engine.isRunning) || mic.rateChanged
         }
-        return false
+        return !engine.isRunning
+    }
+
+    // MARK: Input on demand (main thread)
+
+    /// Opens the input as soon as something needs it, and pauses it a few seconds after the
+    /// last reason goes away (so a quick restart in Zoom doesn't bounce the mic).
+    func setInputDemand(_ reason: InputDemand, _ on: Bool) {
+        if on { inputDemand.insert(reason) } else { inputDemand.remove(reason) }
+        pauseWork?.cancel()
+        pauseWork = nil
+        if inputDemand.isEmpty, status.micLive {
+            let work = DispatchWorkItem { [weak self] in self?.updateInput() }
+            pauseWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: work)
+        } else {
+            updateInput()
+        }
+    }
+
+    /// Starts or pauses the input to match `inputDemand`. Device calls run on `setupQueue`.
+    private func updateInput() {
+        guard let mic else { return }
+        let wanted = !inputDemand.isEmpty
+        guard wanted != status.micLive else { return }
+        status.micLive = wanted
+        if !wanted { applyNoiseRemoval() } // bypass before pausing; un-bypassed once audio flows
+        setupQueue.async { [weak self] in
+            var rateChanged = false, failure: String?
+            if wanted {
+                rateChanged = mic.rateChanged
+                if !rateChanged {
+                    do { try mic.start() } catch { failure = error.localizedDescription }
+                }
+            } else {
+                mic.engine.stop()
+            }
+            DispatchQueue.main.async {
+                guard let self, mic === self.mic else { return }
+                if rateChanged {
+                    // The graph was built for the old rate; a rebuild picks up the new one.
+                    self.status.micLive = false
+                    self.onNeedsRebuild?()
+                    return
+                }
+                if let failure {
+                    self.status.micLive = false
+                    self.status.micProblem = "\(self.status.mic ?? "Input"): \(failure)"
+                    self.status.mic = nil
+                } else if wanted {
+                    self.applyNoiseRemoval()
+                }
+                NSLog("Soundboard: input %@", self.status.micLive ? "open" : "paused")
+                self.onStatusChange?()
+            }
+        }
     }
 
     func teardown() {
@@ -606,16 +690,22 @@ final class AudioRouter {
 
     /// Applies volume and noise suppression changes without restarting anything.
     func setVolumes(_ config: Config) {
+        settings = config
         broadcast?.effects.outputVolume = config.soundVolume
         micNode?.volume = config.micVolume
         broadcastTone?.volume = config.micVolume
         monitor?.effects.outputVolume = config.monitorVolume
         monitorTone?.volume = config.monitorVolume
-        if let micFilter { Self.configure(micFilter, config) }
+        applyNoiseRemoval()
     }
 
-    private static func configure(_ filter: AVAudioUnitEffect, _ config: Config) {
-        filter.bypass = !config.noiseSuppression
+    private func applyNoiseRemoval() {
+        if let micFilter { Self.configure(micFilter, settings, inputLive: status.micLive) }
+    }
+
+    /// Noise removal is bypassed while the input is paused, so the model isn't run on silence.
+    private static func configure(_ filter: AVAudioUnitEffect, _ config: Config, inputLive: Bool) {
+        filter.bypass = !config.noiseSuppression || !inputLive
         filter.auAudioUnit.parameterTree?.parameter(withAddress: AUParameterAddress(kAUSoundIsolationParam_WetDryMixPercent))?
             .value = config.noiseSuppressionStrength * 100
     }
@@ -687,7 +777,7 @@ final class AudioRouter {
         let filter = makeVoiceIsolation()
         var settings = config
         settings.noiseSuppression = cleaned && config.noiseSuppression
-        configure(filter, settings)
+        configure(filter, settings, inputLive: true)
         engine.attach(source)
         engine.attach(filter)
         engine.connect(source, to: filter, format: format)

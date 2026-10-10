@@ -40,11 +40,14 @@ final class AudioMonitor: ObservableObject {
 
     func start() {
         guard timer == nil else { return }
+        router.setInputDemand(.audioTab, true) // meters and the input test need the input open
         timer = Timer.scheduledTimer(withTimeInterval: 1 / 30, repeats: true) { [weak self] _ in self?.tick() }
         tick()
     }
 
     func stop() {
+        guard timer != nil else { return }
+        router.setInputDemand(.audioTab, false)
         timer?.invalidate()
         timer = nil
         stopPlayback()
