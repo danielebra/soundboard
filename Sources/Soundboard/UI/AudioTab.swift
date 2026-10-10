@@ -105,6 +105,7 @@ struct AudioTab: View {
             output
             monitorSection
             deck
+            palette
         }
         .formStyle(.grouped)
         .frame(maxWidth: 760)
@@ -235,6 +236,19 @@ struct AudioTab: View {
                     Text("\(settings.config.brightness)%").monospacedDigit().frame(width: 40, alignment: .trailing)
                 }
             }
+        }
+    }
+
+    private var palette: some View {
+        Section {
+            Picker("Screen corner", selection: binding(\.hotCorner)) {
+                ForEach(HotCorner.allCases) { Text($0.title).tag($0) }
+            }
+        } header: {
+            Text("On-Screen Palette")
+        } footer: {
+            Text("Rest the pointer in this corner of the screen to fan out the pad's keys, so you can play sounds without a Stream Deck. The palette doesn't take focus from your call. Pick a corner macOS isn't using for Hot Corners (System Settings › Desktop & Dock).")
+                .foregroundStyle(.secondary)
         }
     }
 

@@ -13,7 +13,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
     /// Called after the config changes (from disk or the settings window).
     var onConfigChange: ((Config) -> Void)?
 
-    private var page = 0
+    private(set) var page = 0
     private var nowPlaying: [String] = []
     private var censorKey: String?
     /// Redraws the info screen while it shows something live; nil otherwise.
@@ -34,6 +34,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
     private var watchers: [DispatchSourceFileSystemObject] = []
 
     private var mainWindow: MainWindow!
+    private lazy var palette = Palette(app: self)
+    private let corner = CornerTrigger()
 
     /// Key grid of the connected deck (Neo layout when none is plugged in).
     var keyLayout: (keys: Int, columns: Int) {
@@ -79,8 +81,15 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
         decks.delegate = self
         decks.start()
 
+        corner.onTrigger = { [weak self] screen in
+            guard let self else { return }
+            self.palette.show(on: screen, corner: self.config.hotCorner)
+        }
+        palette.onVisibilityChange = { [weak self] visible in self?.corner.isSuspended = visible }
+
         if CommandLine.arguments.contains("--settings") { showSettings() }
         if CommandLine.arguments.contains("--audio") { mainWindow.show(.audio) }
+        if CommandLine.arguments.contains("--palette") { palette.show(on: nil, corner: config.hotCorner, stays: true) }
         if let i = CommandLine.arguments.firstIndex(of: "--clip") {
             // `--clip <file or link>` opens the clip editor with it.
             let argument = CommandLine.arguments[safe: i + 1].flatMap { $0.hasPrefix("-") ? nil : $0 }
@@ -99,10 +108,15 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
             // after `--snapshot <seconds>` (default 2).
             let delay = CommandLine.arguments[safe: i + 1].flatMap(Double.init) ?? 2
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                let file = Paths.root.appending(path: "snapshot.png")
+                if NSApp.windows.allSatisfy({ !$0.isVisible || $0 is NSPanel }), let png = self.palette.snapshotPNG() {
+                    try? png.write(to: file)
+                    return
+                }
                 guard let view = NSApp.windows.filter(\.isVisible).max(by: { $0.frame.width < $1.frame.width })?.contentView,
                       let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
                 view.cacheDisplay(in: view.bounds, to: rep)
-                try? rep.representation(using: .png, properties: [:])?.write(to: Paths.root.appending(path: "snapshot.png"))
+                try? rep.representation(using: .png, properties: [:])?.write(to: file)
             }
         }
     }
@@ -179,6 +193,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
             router.setVolumes(config)
         }
         decks.deck?.setBrightness(config.brightness)
+        corner.corner = config.hotCorner
         redrawDeck()
         onConfigChange?(config)
     }
@@ -242,6 +257,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
 
     func deckDidDisconnect(_ deck: StreamDeck) {
         NSLog("Soundboard: disconnected %@", deck.model.name)
+        palette.reload() // back to the Neo layout
         redrawScreen() // stops the screen timer
         publishStatus()
     }
@@ -251,6 +267,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
             if pressed { turnPage(by: index == deck.model.keyCount ? -1 : 1) }
             return
         }
+        press(index: index, pressed: pressed)
+    }
+
+    /// A key on the current page went down or up, on the deck or the on-screen palette.
+    func press(index: Int, pressed: Bool) {
         guard let button = button(page: page, index: index) else { return }
         let key = Self.key(page, index)
         switch button.action {
@@ -269,7 +290,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
         }
     }
 
-    private func turnPage(by delta: Int) {
+    func turnPage(by delta: Int) {
         guard config.pages.count > 1 else { return }
         page = (page + delta + config.pages.count) % config.pages.count
         redrawDeck()
@@ -288,20 +309,27 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
         assets.render(config.face(button(page: page, index: index)), size: size, active: isActive(Self.key(page, index)))
     }
 
+    /// Redraws every key of the current page, on the deck and the palette.
     private func redrawDeck() {
+        palette.reload()
         guard let deck = decks.deck else { return }
-        for index in 0..<deck.model.keyCount { redraw(key: Self.key(page, index)) }
+        for index in 0..<deck.model.keyCount { sendKey(index, to: deck) }
         redrawScreen()
     }
 
     private func redraw(key: String) {
-        guard let deck = decks.deck else { return }
         let parts = key.split(separator: ".").compactMap { Int($0) }
-        guard parts.count == 2, parts[0] == page, parts[1] < deck.model.keyCount else { return }
+        guard parts.count == 2, parts[0] == page else { return }
+        palette.refresh(index: parts[1])
+        if let deck = decks.deck, parts[1] < deck.model.keyCount { sendKey(parts[1], to: deck) }
+    }
+
+    private func sendKey(_ index: Int, to deck: StreamDeck) {
+        let key = Self.key(page, index)
         let cacheKey = "\(key).\(isActive(key))"
-        let jpeg = keyCache[cacheKey] ?? KeyRenderer.jpeg(renderKey(page: page, index: parts[1], size: deck.model.keySize))
+        let jpeg = keyCache[cacheKey] ?? KeyRenderer.jpeg(renderKey(page: page, index: index, size: deck.model.keySize))
         keyCache[cacheKey] = jpeg
-        deck.setKeyImage(parts[1], jpeg: jpeg)
+        deck.setKeyImage(index, jpeg: jpeg)
     }
 
     // MARK: Info screen
@@ -457,6 +485,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
         menu.addItem(.separator())
         action("Open Soundboard…", #selector(showSettings), key: ",")
         action("New Sound…", #selector(newClip), key: "n")
+        action(palette.isVisible ? "Hide Palette" : "Show Palette", #selector(togglePalette), key: "p")
         action("Stop All Sounds", #selector(stopAll), key: ".")
         action("Route Input to Output", #selector(toggleMic), on: config.micPassthrough)
         action("Monitor Sounds", #selector(toggleMonitor), on: config.monitor)
@@ -511,6 +540,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
     }
 
     @objc private func stopAll() { router.stopAll() }
+
+    @objc private func togglePalette() { palette.toggle(corner: config.hotCorner) }
 
     @objc private func toggleMic() {
         var updated = config
