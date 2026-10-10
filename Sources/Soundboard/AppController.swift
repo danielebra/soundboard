@@ -48,6 +48,13 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
 
         router.onPlaybackChange = { [weak self] key, playing in self?.playbackChanged(key, playing) }
         router.onNeedsRebuild = { [weak self] in self?.scheduleRebuild() }
+        router.onStatusChange = { [weak self] in
+            guard let self else { return }
+            let s = self.router.status
+            NSLog("Soundboard: output=%@ monitor=%@ mic=%@",
+                  s.output ?? "✗ \(s.outputProblem ?? "-")", s.monitor ?? "off", s.mic ?? "✗ \(s.micProblem ?? "off")")
+            self.redrawScreen()
+        }
         AudioDevices.observeChanges { [weak self] in self?.scheduleRebuild() }
 
         reloadConfig()
@@ -103,9 +110,13 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
             try Paths.ensureExists()
             data = try Data(contentsOf: Paths.config)
             if hasLoaded, data == lastWritten { return }
-            let loaded = try JSONDecoder().decode(Config.self, from: data)
+            var loaded = try JSONDecoder().decode(Config.self, from: data)
             configError = nil
-            apply(loaded)
+            if loaded.upgrade(soundFiles: Paths.soundFiles()) {
+                save(loaded) // first run after the library was added, or new files in sounds/
+            } else {
+                apply(loaded)
+            }
         } catch {
             configError = "config.json: \(error.localizedDescription)"
             NSLog("Soundboard: %@", "\(error)")
@@ -115,6 +126,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
 
     /// Saves to config.json and applies immediately.
     func save(_ newConfig: Config) {
+        var newConfig = newConfig
+        _ = newConfig.upgrade(soundFiles: Paths.soundFiles()) // keep files dropped into sounds/ in the library
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .withoutEscapingSlashes]
         do {
@@ -137,9 +150,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
             || old.monitor != newConfig.monitor
         hasLoaded = true
 
-        for button in config.pages.joined().compactMap({ $0 }) {
-            if let path = button.sound { _ = assets.sound(path) }
-        }
+        for entry in config.library { _ = assets.sound(entry.file) }
         keyCache.removeAll()
         page = min(page, max(0, config.pages.count - 1))
         if routingChanged {
@@ -189,9 +200,6 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
 
     private func rebuildAudio() {
         router.rebuild(config: config, micAllowed: micAllowed)
-        let s = router.status
-        NSLog("Soundboard: output=%@ monitor=%@ mic=%@",
-              s.output ?? "✗ \(s.outputProblem ?? "-")", s.monitor ?? "off", s.mic ?? "✗ \(s.micProblem ?? "off")")
         redrawScreen()
     }
 
@@ -229,8 +237,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
             censorKey = pressed ? key : nil
             redraw(key: key)
         case nil:
-            guard pressed, let path = button.sound, case let .success(sound) = assets.sound(path) else { return }
-            router.play(key: key, sound: sound, volume: button.volume ?? 1, mode: button.mode ?? .toggle,
+            guard pressed, let entry = config.entry(button.sound),
+                  case let .success(sound) = assets.sound(entry.file) else { return }
+            router.play(key: key, sound: sound, volume: entry.volume ?? 1, mode: entry.mode ?? .toggle,
                         stopOthers: config.stopOthers)
         }
     }
@@ -251,7 +260,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
     private func isActive(_ key: String) -> Bool { router.isPlaying(key) || censorKey == key }
 
     func renderKey(page: Int, index: Int, size: Int) -> CGImage {
-        assets.render(button(page: page, index: index), size: size, active: isActive(Self.key(page, index)))
+        assets.render(config.face(button(page: page, index: index)), size: size, active: isActive(Self.key(page, index)))
     }
 
     private func redrawDeck() {
@@ -275,12 +284,14 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
         let playingLabel = nowPlaying.last.flatMap { key -> String? in
             let parts = key.split(separator: ".").compactMap { Int($0) }
             guard parts.count == 2, let b = button(page: parts[0], index: parts[1]) else { return nil }
-            return b.name ?? b.label ?? "Sound"
+            return config.entry(b.sound)?.name ?? b.label ?? "Sound"
         }
         let title = censorKey != nil ? "BLEEP" : playingLabel.map { "▶ \($0)" } ?? "Soundboard"
         var subtitle = config.pages.count > 1 ? "Page \(page + 1) of \(config.pages.count)" : ""
         let status = router.status
-        let warning = configError != nil ? "config error" : status.outputProblem != nil ? "no virtual mic" : nil
+        let warning = configError != nil ? "config error"
+            : status.connecting != nil ? "connecting audio…"
+            : status.outputProblem != nil ? "no virtual mic" : nil
         let mic = status.mic != nil ? "mic on" : (config.micPassthrough ? "mic off" : nil)
         subtitle = [subtitle, warning ?? mic].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
         let image = KeyRenderer.screen(width: screen.width, height: screen.height, title: title, subtitle: subtitle)
@@ -315,14 +326,17 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
         if !NSRunningApplication.runningApplications(withBundleIdentifier: "com.elgato.StreamDeck").isEmpty {
             info("⚠︎ Quit the Elgato Stream Deck app — it locks the device")
         }
-        info(status.output.map { "✓ Sending to \($0)" } ?? "✗ \(status.outputProblem ?? "No output")")
-        if config.micPassthrough {
+        if let device = status.connecting {
+            info("⏳ Opening \(device)… (if this stays, the audio driver is stuck — restart your Mac)")
+        } else {
+            info(status.output.map { "✓ Sending to \($0)" } ?? "✗ \(status.outputProblem ?? "No output")")
+        }
+        if config.micPassthrough, status.connecting == nil {
             info(status.mic.map { "✓ Mic: \($0)" } ?? "✗ \(status.micProblem ?? "Mic unavailable")")
         }
         if let monitor = status.monitor { info("✓ You hear it on \(monitor)") }
         if let configError { info("✗ \(configError)") }
-        let broken = Set(config.pages.joined().compactMap { $0?.action == nil ? $0?.sound : nil })
-            .filter { if case .failure = assets.sound($0) { return true } else { return false } }.count
+        let broken = config.library.filter { assets.isBroken($0.file) }.count
         if broken > 0 { info("⚠︎ \(broken) sound file\(broken == 1 ? "" : "s") couldn't be loaded") }
 
         menu.addItem(.separator())

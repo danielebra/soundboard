@@ -137,6 +137,8 @@ private final class MicCapture {
 /// mirrors the sounds to your own speakers/headphones.
 final class AudioRouter {
     struct Status {
+        /// Set while devices are being opened; names the virtual device being waited on.
+        var connecting: String?
         var output: String?
         var outputProblem: String?
         var monitor: String?
@@ -149,6 +151,8 @@ final class AudioRouter {
     var onPlaybackChange: ((String, Bool) -> Void)?
     /// An engine stopped because a device changed underneath it.
     var onNeedsRebuild: (() -> Void)?
+    /// Devices finished opening (or failed) — `status` is up to date.
+    var onStatusChange: (() -> Void)?
 
     private let voiceCount = 12
     private var broadcast: OutputBus?
@@ -158,6 +162,17 @@ final class AudioRouter {
     private var observers: [NSObjectProtocol] = []
     private var micNode: AVAudioSourceNode?
     private var monitorTone: AVAudioSourceNode?
+    private let setupQueue = DispatchQueue(label: "soundboard.audio.setup")
+    private var generation = 0
+
+    private struct Built {
+        var broadcast: OutputBus?
+        var monitor: OutputBus?
+        var mic: MicCapture?
+        var micNode: AVAudioSourceNode?
+        var monitorTone: AVAudioSourceNode?
+        var status = Status()
+    }
 
     private var voiceOwner: [String?]
     private var voiceToken: [Int]
@@ -178,27 +193,70 @@ final class AudioRouter {
 
     func rebuild(config: Config, micAllowed: Bool) {
         teardown()
-        status = Status()
+        generation += 1
+        let generation = self.generation
+        status = Status(connecting: config.outputDevice)
+        let realtime = self.realtime, voiceCount = self.voiceCount
+        setupQueue.async { [weak self] in
+            let built = Self.build(config: config, micAllowed: micAllowed, realtime: realtime, voiceCount: voiceCount)
+            DispatchQueue.main.async {
+                guard let self, generation == self.generation else {
+                    // A newer rebuild started while this one was stuck; discard it.
+                    self?.setupQueue.async { [built.broadcast?.engine, built.monitor?.engine, built.mic?.engine].forEach { $0?.stop() } }
+                    return
+                }
+                self.install(built)
+            }
+        }
+    }
+
+    private func install(_ built: Built) {
+        broadcast = built.broadcast
+        monitor = built.monitor
+        mic = built.mic
+        micNode = built.micNode
+        monitorTone = built.monitorTone
+        status = built.status
+
+        // A device change can stop an engine; rebuild only then. Engines also post this
+        // notification harmlessly right after we move them off the default device —
+        // rebuilding on those would restart the mic forever.
+        let engines = [broadcast?.engine, monitor?.engine, mic?.engine].compactMap { $0 }
+        for engine in engines {
+            observers.append(NotificationCenter.default.addObserver(
+                forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
+            ) { [weak self] _ in
+                guard let self else { return }
+                if self.needsRebuild(engine) { self.onNeedsRebuild?() }
+            })
+        }
+        onStatusChange?()
+    }
+
+    /// Everything that talks to audio devices. Runs on `setupQueue` because a stuck driver
+    /// can block these calls indefinitely.
+    private static func build(config: Config, micAllowed: Bool, realtime: RealtimeState, voiceCount: Int) -> Built {
+        var built = Built()
 
         // Microphone (optional).
         if config.micPassthrough {
             let device = config.micDevice.flatMap { AudioDevices.find($0, output: false) }
                 ?? (config.micDevice == nil ? AudioDevices.defaultDevice(output: false) : nil)
             if !micAllowed {
-                status.micProblem = "Microphone access not granted"
+                built.status.micProblem = "Microphone access not granted"
             } else if let device {
                 if device.name.localizedCaseInsensitiveContains(config.outputDevice) {
-                    status.micProblem = "Mic is set to the virtual device — pick your real mic"
+                    built.status.micProblem = "Mic is set to the virtual device — pick your real mic"
                 } else {
                     do {
-                        mic = try MicCapture(device: device.id)
-                        status.mic = device.name
+                        built.mic = try MicCapture(device: device.id)
+                        built.status.mic = device.name
                     } catch {
-                        status.micProblem = "\(device.name): \(error.localizedDescription)"
+                        built.status.micProblem = "\(device.name): \(error.localizedDescription)"
                     }
                 }
             } else {
-                status.micProblem = "Mic “\(config.micDevice ?? "default")” not found"
+                built.status.micProblem = "Mic “\(config.micDevice ?? "default")” not found"
             }
         }
 
@@ -207,9 +265,9 @@ final class AudioRouter {
             do {
                 let bus = try OutputBus(device: device.id, voiceCount: voiceCount)
                 bus.effects.outputVolume = config.soundVolume
-                let rate = mic?.sampleRate ?? mixFormat.sampleRate
+                let rate = built.mic?.sampleRate ?? mixFormat.sampleRate
                 let format = AVAudioFormat(standardFormatWithSampleRate: rate, channels: 1)!
-                let ring = mic?.ring
+                let ring = built.mic?.ring
                 let state = realtime
                 var phase = 0.0
                 let voice = AVAudioSourceNode(format: format) { isSilence, _, frames, list in
@@ -226,21 +284,21 @@ final class AudioRouter {
                 }
                 voice.volume = config.micVolume
                 bus.add(voice, format: format)
-                micNode = voice
-                broadcast = bus
-                status.output = device.name
+                built.micNode = voice
+                built.broadcast = bus
+                built.status.output = device.name
             } catch {
-                status.outputProblem = "\(device.name): \(error.localizedDescription)"
+                built.status.outputProblem = "\(device.name): \(error.localizedDescription)"
             }
         } else {
-            status.outputProblem = "“\(config.outputDevice)” not found — is BlackHole installed?"
+            built.status.outputProblem = "“\(config.outputDevice)” not found — is BlackHole installed?"
         }
 
         // What you hear.
         if config.monitor {
             let device = config.monitorDevice.flatMap { AudioDevices.find($0, output: true) }
                 ?? (config.monitorDevice == nil ? AudioDevices.defaultDevice(output: true) : nil)
-            if let device, device.name != status.output {
+            if let device, device.name != built.status.output {
                 do {
                     let bus = try OutputBus(device: device.id, voiceCount: voiceCount)
                     bus.effects.outputVolume = config.monitorVolume
@@ -260,48 +318,37 @@ final class AudioRouter {
                     }
                     tone.volume = config.monitorVolume
                     bus.add(tone, format: format)
-                    monitorTone = tone
-                    monitor = bus
-                    status.monitor = device.name
+                    built.monitorTone = tone
+                    built.monitor = bus
+                    built.status.monitor = device.name
                 } catch {
                     NSLog("Soundboard: monitor device \(device.name): \(error.localizedDescription)")
                 }
             }
         }
 
-        for (bus, label) in [(broadcast, "virtual device"), (monitor, "monitor")] {
+        for (bus, label) in [(built.broadcast, "virtual device"), (built.monitor, "monitor")] {
             guard let bus else { continue }
             do { try bus.start() } catch {
                 NSLog("Soundboard: starting \(label) failed: \(error)")
                 if label == "virtual device" {
-                    status.outputProblem = "Could not start: \(error.localizedDescription)"
-                    broadcast = nil
+                    built.status.outputProblem = "Could not start: \(error.localizedDescription)"
+                    built.broadcast = nil
                 } else {
-                    monitor = nil
-                    status.monitor = nil
+                    built.monitor = nil
+                    built.status.monitor = nil
                 }
             }
         }
-        if let mic {
+        if let mic = built.mic {
             do { try mic.start() } catch {
-                status.micProblem = "Could not start mic: \(error.localizedDescription)"
-                status.mic = nil
-                self.mic = nil
+                built.status.micProblem = "Could not start mic: \(error.localizedDescription)"
+                built.status.mic = nil
+                built.mic = nil
             }
         }
 
-        // A device change can stop an engine; rebuild only then. Engines also post this
-        // notification harmlessly right after we move them off the default device —
-        // rebuilding on those would restart the mic forever.
-        let engines = [broadcast?.engine, monitor?.engine, mic?.engine].compactMap { $0 }
-        for engine in engines {
-            observers.append(NotificationCenter.default.addObserver(
-                forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
-            ) { [weak self] _ in
-                guard let self else { return }
-                if self.needsRebuild(engine) { self.onNeedsRebuild?() }
-            })
-        }
+        return built
     }
 
     private func needsRebuild(_ engine: AVAudioEngine) -> Bool {
@@ -317,9 +364,8 @@ final class AudioRouter {
         stopAll()
         observers.forEach(NotificationCenter.default.removeObserver)
         observers.removeAll()
-        mic?.engine.stop()
-        broadcast?.engine.stop()
-        monitor?.engine.stop()
+        let engines = [mic?.engine, broadcast?.engine, monitor?.engine]
+        setupQueue.async { engines.forEach { $0?.stop() } }
         mic = nil
         broadcast = nil
         monitor = nil

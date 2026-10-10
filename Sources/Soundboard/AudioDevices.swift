@@ -16,7 +16,39 @@ enum AudioDevices {
         AudioObjectPropertyAddress(mSelector: selector, mScope: scope, mElement: kAudioObjectPropertyElementMain)
     }
 
+    private static let queryQueue = DispatchQueue(label: "soundboard.audio.devices")
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var cached: [AudioDevice] = []
+    nonisolated(unsafe) private static var querying = false
+
+    /// All audio devices. A misbehaving driver can make CoreAudio queries hang forever, so
+    /// the query runs on its own queue and callers get the last known list after 0.5 s
+    /// (or immediately while a previous query is still stuck).
     static func all() -> [AudioDevice] {
+        lock.lock()
+        if querying {
+            defer { lock.unlock() }
+            return cached
+        }
+        querying = true
+        lock.unlock()
+
+        let done = DispatchSemaphore(value: 0)
+        queryQueue.async {
+            let devices = query()
+            lock.lock()
+            cached = devices
+            querying = false
+            lock.unlock()
+            done.signal()
+        }
+        _ = done.wait(timeout: .now() + 0.5)
+        lock.lock()
+        defer { lock.unlock() }
+        return cached
+    }
+
+    private static func query() -> [AudioDevice] {
         var addr = address(kAudioHardwarePropertyDevices)
         var size: UInt32 = 0
         guard AudioObjectGetPropertyDataSize(system, &addr, 0, nil, &size) == noErr else { return [] }
