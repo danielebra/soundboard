@@ -254,6 +254,11 @@ and thumbnail on reset.
 - The Soundboard folder itself is the work tree. The helper (re)writes `.gitignore` (local.json,
   downloads/, `*/Deleted/`, backups) and `.gitattributes` (`config.json merge=soundboard`), and
   points `merge.soundboard.driver` in `.git/config` at its own executable on every run.
+- **Joining:** a folder with no commits whose library is only the `/System/Library/Sounds` starters (and no
+  files in `sounds/` or `icons/`) checks out the repository's copy (`reset --hard FETCH_HEAD`) instead of
+  committing the starters as a second root and merging. A Mac with its own sounds still takes the merge path.
+  `Git` can't run under XCTest (it reads the `searchPath` global from `main.swift`), so this is tested by hand
+  with two `SOUNDBOARD_ROOT` folders and a local bare repo; `isUntouchedStarter` has unit tests.
 - Steps: `add -A` + commit ("Changes from <Mac name>", author "Soundboard (<Mac name>)", never
   signed) → `ls-remote --symref` for the branch (none = empty repo, push `main`) → fetch →
   `merge --allow-unrelated-histories -X theirs` → push, retrying up to 3 times if the push races.
