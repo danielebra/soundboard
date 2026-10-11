@@ -463,70 +463,79 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
 
     // MARK: Menu
 
+    /// What's wrong right now, one short line each. Empty when everything works; the menu shows
+    /// only these, and the icon turns into a warning for them.
+    private var problems: [String] {
+        let status = router.status
+        var lines: [String] = []
+        if decks.deck == nil, decks.busyDevice != nil { lines.append("Stream Deck is in use by another app") }
+        if let device = status.connecting {
+            lines.append("Opening \(device)… (restart your Mac if this stays)")
+        } else if status.output == nil {
+            lines.append(status.outputProblem ?? "No output device")
+        }
+        if config.micPassthrough, status.mic == nil, let problem = status.micProblem { lines.append(problem) }
+        if let configError { lines.append(configError) }
+        let broken = config.library.filter { assets.isBroken($0.file) }.count
+        if broken > 0 { lines.append("\(broken) sound file\(broken == 1 ? "" : "s") couldn't be loaded") }
+        if case let .failed(message) = sync.state { lines.append("Sync failed: \(message)") }
+        return lines
+    }
+
+    /// The menu bar icon, with a warning mark while something is wrong.
+    private func updateStatusIcon() {
+        let symbol = problems.isEmpty ? "square.grid.2x2.fill" : "exclamationmark.triangle.fill"
+        statusItem.button?.image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Soundboard")
+    }
+
+    /// A short menu: the window is where everything happens. Shortcuts shown are the real global
+    /// ones, so the menu doubles as a reminder of them.
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
         let status = router.status
 
-        func info(_ text: String) {
-            let item = NSMenuItem(title: text, action: nil, keyEquivalent: "")
-            item.isEnabled = false
-            menu.addItem(item)
-        }
-        func action(_ title: String, _ selector: Selector, key: String = "", on: Bool? = nil) {
+        func add(_ title: String, _ selector: Selector?, key: String = "", mask: NSEvent.ModifierFlags = .command,
+                 on: Bool? = nil, to menu: NSMenu = menu) {
             let item = NSMenuItem(title: title, action: selector, keyEquivalent: key)
             item.target = self
+            item.keyEquivalentModifierMask = mask
+            if selector == nil { item.isEnabled = false }
             if let on { item.state = on ? .on : .off }
             menu.addItem(item)
         }
-
-        if let deck = decks.deck {
-            info("✓ \(deck.model.name)")
-        } else if decks.busyDevice != nil {
-            info("✗ Stream Deck is in use by another app (quit it to connect)")
-        } else {
-            info("✗ No Stream Deck connected")
-        }
-        if let device = status.connecting {
-            info("⏳ Opening \(device)… (if this stays, the audio driver is stuck; restart your Mac)")
-        } else {
-            info(status.output.map { "✓ Output: \($0)\(status.outputLive ? "" : " (standby until an app listens)")" }
-                ?? "✗ \(status.outputProblem ?? "No output")")
-        }
-        if config.micPassthrough, status.mic != nil || status.micProblem != nil {
-            info(status.mic.map { "✓ Input: \($0)\(status.micLive ? "" : " (standby until an app listens)")" }
-                ?? "✗ \(status.micProblem ?? "Input unavailable")")
-        }
-        if let monitor = status.monitor { info("✓ Monitor: \(monitor)\(status.monitorLive ? "" : " (opens when a sound plays)")") }
-        if let configError { info("✗ \(configError)") }
-        let broken = config.library.filter { assets.isBroken($0.file) }.count
-        if broken > 0 { info("⚠︎ \(broken) sound file\(broken == 1 ? "" : "s") couldn't be loaded") }
-        switch sync.state {
-        case .off: break
-        case let .syncing(message): info("⏳ Sync: \(message)")
-        case let .synced(date): info("✓ Synced at \(date.formatted(date: .omitted, time: .shortened))")
-        case let .failed(message): info("✗ Sync failed: \(message)")
+        /// A command with its global shortcut, when shortcuts are on.
+        func add(_ title: String, _ selector: Selector, shortcut command: ShortcutCommand) {
+            let on = config.shortcuts != .off
+            add(title, selector, key: on ? command.keyName.lowercased() : "", mask: config.shortcuts.menuMask)
         }
 
-        menu.addItem(.separator())
-        action("Open Soundboard…", #selector(showSettings), key: ",")
-        action("New Sound…", #selector(newClip), key: "n")
-        action(palette.isVisible ? "Hide Palette" : "Show Palette", #selector(togglePalette), key: "p")
-        action("Stop All Sounds", #selector(stopAll), key: ".")
-        action("Route Input to Output", #selector(toggleMic), on: config.micPassthrough)
-        action("Monitor Sounds", #selector(toggleMonitor), on: config.monitor)
-        if sync.state != .off { action("Sync Now", #selector(syncNow)) }
+        let lines = problems
+        for line in lines { add("⚠︎ \(line)", nil) }
+        if !lines.isEmpty { menu.addItem(.separator()) }
+
+        add("Open Soundboard…", #selector(showSettings), key: ",")
+        add("New Sound…", #selector(newClip), key: "n")
+        add(palette.isVisible ? "Hide Palette" : "Show Palette", #selector(togglePalette), shortcut: .palette)
+        add("Stop All Sounds", #selector(stopAll), shortcut: .stopAll)
+        if sync.state != .off { add("Sync Now", #selector(syncNow), key: "") }
         if status.micProblem == "Microphone access not granted" {
-            action("Allow Microphone Access…", #selector(openMicSettings))
+            add("Allow Microphone Access…", #selector(openMicSettings), key: "")
         }
 
+        let more = NSMenu()
+        add("Route Input to Output", #selector(toggleMic), on: config.micPassthrough, to: more)
+        add("Monitor Sounds", #selector(toggleMonitor), on: config.monitor, to: more)
+        more.addItem(.separator())
+        add("Open Soundboard Folder", #selector(openFolder), to: more)
+        add("Edit config.json", #selector(editConfig), to: more)
+        add("Reload", #selector(reload), to: more)
+        let moreItem = NSMenuItem(title: "More", action: nil, keyEquivalent: "")
+        moreItem.submenu = more
         menu.addItem(.separator())
-        action("Open Soundboard Folder", #selector(openFolder), key: "o")
-        action("Edit config.json", #selector(editConfig), key: "e")
-        action("Reload", #selector(reload), key: "r")
-        action("Open at Login", #selector(toggleLogin), on: SMAppService.mainApp.status == .enabled)
+        menu.addItem(moreItem)
 
         menu.addItem(.separator())
-        action("Quit Soundboard", #selector(quit), key: "q")
+        add("Quit Soundboard", #selector(quit), key: "q")
     }
 
     /// Opening the app again (Finder, Spotlight, `open`) while it runs shows the window.
@@ -564,6 +573,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
 
     private func publishStatus() {
         mainWindow?.statusChanged(appStatus)
+        updateStatusIcon()
     }
 
     @objc private func stopAll() { router.stopAll() }

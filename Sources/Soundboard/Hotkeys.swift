@@ -1,3 +1,4 @@
+import AppKit
 import Carbon
 import Foundation
 
@@ -43,6 +44,16 @@ enum ShortcutCommand: Hashable {
 }
 
 extension ShortcutModifiers {
+    /// The same modifiers for a menu item's key equivalent, so the menu shows the real shortcut.
+    var menuMask: NSEvent.ModifierFlags {
+        switch self {
+        case .off: []
+        case .controlOption: [.control, .option]
+        case .controlOptionCommand: [.control, .option, .command]
+        case .hyper: [.control, .option, .shift, .command]
+        }
+    }
+
     var carbonFlags: UInt32 {
         switch self {
         case .off: 0
