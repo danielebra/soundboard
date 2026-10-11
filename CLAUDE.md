@@ -3,7 +3,7 @@
 A private, offline macOS soundboard and mic mixer: a Stream Deck (or the on-screen
 palette) triggers sound effects that are mixed with the user's mic into a virtual audio
 device (BlackHole 2ch) that meeting and streaming apps use as their microphone. User-facing docs
-are in `README.md`; this file is the architecture and the lessons learned.
+are in `README.md` (the config file format in `docs/configuration.md`); this file is the architecture and the lessons learned.
 
 **Prime directive: privacy.** The main app must stay offline (sandbox, no network
 entitlement) and dependency-free (Apple frameworks only). Anything that needs the
