@@ -11,6 +11,8 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
 cp .build/release/Soundboard "$APP/Contents/MacOS/Soundboard"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
+mkdir -p "$APP/Contents/Resources"
+cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
 # Download helper (not sandboxed: it's the one piece allowed online, used only for Fetch).
 HELPER="$APP/Contents/Helpers/SoundboardFetch.app"

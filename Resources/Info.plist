@@ -6,6 +6,8 @@
     <string>local.soundboard</string>
     <key>CFBundleName</key>
     <string>Soundboard</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundleDisplayName</key>
     <string>Soundboard</string>
     <key>CFBundleExecutable</key>
