@@ -37,6 +37,8 @@ final class SettingsModel: ObservableObject {
     private var previewing = false
     var router: AudioRouter?
     var openClipEditor: ((ClipTarget, URL?) -> Void)?
+    /// Plays a library sound like a key press, so the call hears it too (`AppController.playToOutput`).
+    var playToOutput: ((String) -> Void)?
 
     init(config: Config, keyCount: Int, columns: Int, assets: AssetCache, commit: @escaping (Config) -> Void) {
         self.config = config
@@ -533,11 +535,14 @@ private struct LibraryRow: View {
         .contentShape(Rectangle())
         .onTapGesture { model.selection = .sound(entry.id) }
         // Simultaneous, so a single click still selects without waiting out the double-click interval.
-        .simultaneousGesture(TapGesture(count: 2).onEnded { model.preview(entry) })
+        .simultaneousGesture(TapGesture(count: 2).onEnded { model.playToOutput?(entry.id) })
         .onDrag { NSItemProvider(object: (Payload.sound + entry.id) as NSString) }
         .contextMenu {
-            Button("Place on First Empty Key") { model.placeOnFirstEmptyKey(entry.id) }
+            // Play to Output first: it's what double-clicking does.
+            Button("Play to Output") { model.playToOutput?(entry.id) }
             Button("Preview") { model.preview(entry) }
+            Divider()
+            Button("Place on First Empty Key") { model.placeOnFirstEmptyKey(entry.id) }
             Divider()
             Button("Delete from Library…", role: .destructive) { confirmDelete = true }
         }
@@ -652,7 +657,7 @@ private struct KeyCell: View {
             .contentShape(Rectangle())
             .onTapGesture { model.selection = .key(index) }
             .simultaneousGesture(TapGesture(count: 2).onEnded {
-                if button?.action == nil, let entry = model.config.entry(button?.sound) { model.preview(entry) }
+                if button?.action == nil, let id = button?.sound { model.playToOutput?(id) }
             })
             .onDrag { NSItemProvider(object: (Payload.key + String(index)) as NSString) }
             .onDrop(of: [.fileURL, .plainText], isTargeted: $targeted) { providers in
@@ -817,12 +822,12 @@ private struct SoundFields: View {
         Section("Sound") {
             TextField("Name", text: Binding { entry?.name ?? "" } set: { v in model.editEntry(id) { $0.name = v } },
                       prompt: Text("Shown in the library and on the Neo's screen"))
+            Text(entry?.file ?? "").lineLimit(1).truncationMode(.middle).foregroundStyle(.secondary)
             HStack {
-                Text(entry?.file ?? "").lineLimit(1).truncationMode(.middle).foregroundStyle(.secondary)
-                Spacer()
-                Button("Preview", systemImage: "play.fill") { if let entry { model.preview(entry) } }
-                    .labelStyle(.iconOnly)
-                    .help("Plays on this Mac only, not to the output")
+                Button("Play to Output", systemImage: "dot.radiowaves.left.and.right") { model.playToOutput?(id) }
+                    .help("Plays it like a key press, so the call hears it too. Click again to stop.")
+                Button("Preview", systemImage: "headphones") { if let entry { model.preview(entry) } }
+                    .help("Plays it in your headphones only, so the call doesn't hear it")
             }
             HStack {
                 Button("Replace Audio…") {
@@ -878,6 +883,7 @@ private struct KeyCapFields: View {
                     Text(image).lineLimit(1).truncationMode(.middle).foregroundStyle(.secondary)
                     Button("Remove", systemImage: "xmark.circle.fill") { self.image = nil }
                         .labelStyle(.iconOnly).buttonStyle(.borderless)
+                        .help("Remove the image")
                 }
                 Button("Choose…", action: chooseImage)
             }

@@ -85,6 +85,10 @@ Each sound plays in one of two ways:
 There are also two special keys: **Stop** stops everything, and **Bleep** (hold it) mutes
 your mic and sends a censor tone instead. A green border shows what's playing.
 
+Double-click a sound or key to play it to the call, like pressing it on the deck. To hear it
+yourself first, right-click it in the library and choose **Preview**, or press **Preview**
+in its settings: only you hear a preview, in your headphones.
+
 ### Sound Editor
 
 Make a new sound from a file on your Mac, a YouTube link, or a soundboard website. Preview
