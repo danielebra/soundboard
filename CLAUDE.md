@@ -15,6 +15,7 @@ network goes in the separate `SoundboardFetch` helper. Don't add packages.
 swift build -c release                 # both products
 ./build.sh                             # → build/Soundboard.app (helper embedded, ad-hoc signed)
 ./build.sh --install                   # → /Applications
+./build.sh --dmg                       # → also build/Soundboard.dmg (SOUNDBOARD_VERSION/_BUILD set the version)
 open build/Soundboard.app --args --settings            # open the window (Sounds & Keys)
 open build/Soundboard.app --args --audio               # … on the Audio tab
 open build/Soundboard.app --args --app-settings        # … on the Settings tab
@@ -35,6 +36,12 @@ SOUNDBOARD_DEBUG=1 …                   # log raw Stream Deck HID reports
   harnesses and helper runs (see Testing).
 - After `pkill -x Soundboard`, wait ~2s before `open`, or `open` just reactivates the
   dying instance and the `--args` are ignored.
+
+- **CI** (`.github/workflows`, macOS runner): `candidate.yml` on each push to master builds the DMG and
+  updates the `release-candidate` pre-release; `release.yml` (manual, takes a version) tags the built
+  commit `v<version>`, creates the release and attaches the DMG. Notes come from the reusable workflows in
+  `danielebra/simple-release-notes` (they only write the text; the DMG is attached afterwards with
+  `gh release upload`). The DMG is ad-hoc signed and not notarized, so Gatekeeper blocks the first launch.
 
 ## Runtime layout
 
