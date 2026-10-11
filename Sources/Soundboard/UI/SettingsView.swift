@@ -535,12 +535,12 @@ private struct LibraryRow: View {
         .contentShape(Rectangle())
         .onTapGesture { model.selection = .sound(entry.id) }
         // Simultaneous, so a single click still selects without waiting out the double-click interval.
-        .simultaneousGesture(TapGesture(count: 2).onEnded { model.preview(entry) })
+        .simultaneousGesture(TapGesture(count: 2).onEnded { model.playToOutput?(entry.id) })
         .onDrag { NSItemProvider(object: (Payload.sound + entry.id) as NSString) }
         .contextMenu {
-            // Preview first: it's what double-clicking does.
-            Button("Preview") { model.preview(entry) }
+            // Play to Output first: it's what double-clicking does.
             Button("Play to Output") { model.playToOutput?(entry.id) }
+            Button("Preview") { model.preview(entry) }
             Divider()
             Button("Place on First Empty Key") { model.placeOnFirstEmptyKey(entry.id) }
             Divider()
@@ -657,7 +657,7 @@ private struct KeyCell: View {
             .contentShape(Rectangle())
             .onTapGesture { model.selection = .key(index) }
             .simultaneousGesture(TapGesture(count: 2).onEnded {
-                if button?.action == nil, let entry = model.config.entry(button?.sound) { model.preview(entry) }
+                if button?.action == nil, let id = button?.sound { model.playToOutput?(id) }
             })
             .onDrag { NSItemProvider(object: (Payload.key + String(index)) as NSString) }
             .onDrop(of: [.fileURL, .plainText], isTargeted: $targeted) { providers in
