@@ -671,7 +671,15 @@ private struct KeyInspector: View {
                     }
                 }
             } header: {
-                Text("Key \(index + 1) · Page \(model.page + 1)").font(.headline)
+                HStack {
+                    Text("Key \(index + 1) · Page \(model.page + 1)").font(.headline)
+                    Spacer()
+                    if model.config.shortcuts != .off, index < 10 {
+                        Text(model.config.shortcuts.symbols + ShortcutCommand.key(index).keyName)
+                            .foregroundStyle(.secondary)
+                            .help("Keyboard shortcut (Settings tab)")
+                    }
+                }
             }
 
             if let button, button.action != nil {

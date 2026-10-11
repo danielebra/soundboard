@@ -1,7 +1,7 @@
 import ServiceManagement
 import SwiftUI
 
-/// The Settings tab: how you play the keys (Stream Deck, on-screen palette) and app-level
+/// The Settings tab: how you play the keys (Stream Deck, on-screen palette, keyboard) and app-level
 /// options. Everything about the signal itself is on the Audio tab.
 struct SettingsTab: View {
     @ObservedObject var settings: SettingsModel
@@ -29,6 +29,24 @@ struct SettingsTab: View {
                 Text("On-Screen Palette")
             } footer: {
                 Text("Rest the pointer in this corner of the screen to fan out the pad's keys, so you can play sounds without a Stream Deck. The palette doesn't take focus from your call. Pick a corner macOS isn't using for Hot Corners (System Settings › Desktop & Dock).")
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Picker("Modifier keys", selection: binding(\.shortcuts)) {
+                    ForEach(ShortcutModifiers.allCases) { Text($0.title).tag($0) }
+                }
+                let m = settings.config.shortcuts.symbols
+                if settings.config.shortcuts != .off {
+                    LabeledContent("Play key 1 to 10", value: "\(m)1 … \(m)0")
+                    LabeledContent("Previous / next page", value: "\(m)[  \(m)]")
+                    LabeledContent("Stop all sounds", value: "\(m).")
+                    LabeledContent("Show or hide the palette", value: "\(m)P")
+                }
+            } header: {
+                Text("Keyboard Shortcuts")
+            } footer: {
+                Text("Work from any app, without taking focus from it. Keys are numbered like the pad (left to right, top to bottom) on the page the Stream Deck shows. A Bleep key bleeps while you hold its shortcut. If they clash with another app's shortcuts, pick other modifier keys.")
                     .foregroundStyle(.secondary)
             }
 
