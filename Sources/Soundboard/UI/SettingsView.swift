@@ -326,7 +326,8 @@ final class SettingsModel: ObservableObject {
             return
         }
         previewPlayer = try? AVAudioPlayer(contentsOf: Paths.resolve(entry.file, in: Paths.sounds))
-        previewPlayer?.volume = entry.volume ?? 1
+        // The pad plays through the monitor volume, so the preview does too and the two sound alike.
+        previewPlayer?.volume = (entry.volume ?? 1) * config.monitorVolume
         previewPlayer?.play()
     }
 }
