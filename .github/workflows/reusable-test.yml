@@ -1,0 +1,13 @@
+name: Test
+on:
+  workflow_call:
+
+jobs:
+  test:
+    name: make test
+    runs-on: macos-26
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - run: make test
