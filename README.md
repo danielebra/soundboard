@@ -7,6 +7,12 @@ hear it in your headphones too.
 Play the keys from a **Stream Deck**, or from an **on-screen palette** that pops out of a
 corner of your screen.
 
+```
+ Stream Deck ─USB─▶ Soundboard.app ──▶ BlackHole 2ch ──▶ Zoom, Meet, Teams, Discord, OBS…
+ or palette            ▲      │                           (as your microphone)
+        your mic ──────┘      └──────▶ your headphones
+```
+
 ## Features
 
 - **Your own sound library.** Drop in audio files, give each sound a label, picture and
