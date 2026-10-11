@@ -8,9 +8,9 @@ Play the keys from a **Stream Deck**, or from an **on-screen palette** that pops
 corner of your screen.
 
 ```
- Stream Deck ─USB─▶ Soundboard.app ──▶ BlackHole 2ch ──▶ Zoom, Meet, Teams, Discord, OBS…
- or palette            ▲      │                           (as your microphone)
-        your mic ──────┘      └──────▶ your headphones
+ Stream Deck ──▶ Soundboard ──▶ BlackHole ──▶ your meeting or stream
+ or palette        ▲      │
+       your mic ───┘      └──▶ your headphones
 ```
 
 ## Features
