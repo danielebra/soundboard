@@ -3,25 +3,22 @@ on:
   workflow_call:
     inputs:
       version:
-        description: CFBundleShortVersionString for the app (default candidate-<short sha>)
+        description: Version shown in Finder (CFBundleShortVersionString)
         type: string
-        default: ''
+        required: true
 
 jobs:
   build:
-    name: Build Soundboard.dmg
+    name: make dmg
     runs-on: macos-26
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v4
-
-      - name: Build
-        env:
+      - env:
           VERSION: ${{ inputs.version }}
-          SOUNDBOARD_BUILD: ${{ github.run_number }}
-        run: SOUNDBOARD_VERSION="${VERSION:-candidate-${GITHUB_SHA::7}}" ./build.sh --dmg
-
+          BUILD: ${{ github.run_number }}
+        run: make dmg VERSION="$VERSION" BUILD="$BUILD"
       - uses: actions/upload-artifact@v4
         with:
           name: Soundboard.dmg

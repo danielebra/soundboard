@@ -35,7 +35,7 @@ and in your headphones.
    ```
 2. **Install the app.** Either build it:
    ```bash
-   ./build.sh --install
+   make install
    ```
    or download `Soundboard.dmg` from the repository's
    [Releases](https://github.com/danielebra/soundboard/releases) and drag Soundboard into
@@ -310,11 +310,12 @@ SOUNDBOARD_DEBUG=1 .build/release/Soundboard   # log raw key reports
 
 ### Releases
 
-- **Every merge to `master`** builds the DMG and refreshes the **Release Candidate**
-  pre-release: notes for everything merged since the last release, and its `Soundboard.dmg`.
-- **To release**, run *Actions → Release → Run workflow* with a version such as `1.2.0`. It
-  builds `master`, tags it `v1.2.0`, publishes the release with notes since the previous one
-  and the DMG, and clears the candidate.
+- **Every merge to `master`** refreshes the **Release Candidate** pre-release notes:
+  everything merged since the last release. Nothing is built.
+- **To release**, run *Actions → Manual Release → Run workflow* with a version such as
+  `1.2.0`. It builds the DMG, tags that commit `v1.2.0`, publishes the release with notes
+  since the previous one and `Soundboard.dmg`, and clears the candidate.
 - Notes come from [simple-release-notes](https://github.com/danielebra/simple-release-notes)
   and are grouped by PR label (`.github/release.yml`).
-- `./build.sh --dmg` builds the same DMG locally (`build/Soundboard.dmg`).
+- The workflows only call `make` targets: `make dmg VERSION=1.2.0` builds the same DMG
+  locally (`build/Soundboard.dmg`).

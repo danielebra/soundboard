@@ -1,0 +1,19 @@
+name: Check Version
+on:
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        required: true
+
+jobs:
+  check:
+    name: make check-version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - env:
+          VERSION: ${{ inputs.version }}
+        run: make check-version VERSION="$VERSION"
