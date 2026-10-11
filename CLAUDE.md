@@ -97,6 +97,9 @@ sandbox container: `Paths.home` uses `getpwuid`, and the entitlements grant a
   the library. It runs on load **and on every save**, so dropping a file in `sounds/`
   adds it to the library. Deleting a sound must therefore move its file out of `sounds/`
   (Trash, or a `sounds/Deleted/` fallback), or it gets re-added.
+  Re-clipping overwrites the sound's file in place (via a temp file in `downloads/`; the old version
+  goes to the Trash). When it can't (a `/System/Library/Sounds` starter, a file shared by
+  two sounds, not a WAV) the clip gets a new file and the old one is discarded the same way.
 - **Two files:** `config.json` holds only `Config.sharedKeys` (`version`, `library`, `pages`),
   which sync. Everything else (devices, volumes, noise removal, brightness, `hotCorner`, `syncRemote`) is
   per Mac, in `local.json`. Without `local.json` (older configs) those keys are read from

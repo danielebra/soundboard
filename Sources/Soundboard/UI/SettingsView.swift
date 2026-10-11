@@ -192,10 +192,14 @@ final class SettingsModel: ObservableObject {
         let label = clip.showLabel || clip.image == nil ? clip.name : nil
         switch target {
         case let .replace(id):
+            let old = entry(id)
             editEntry(id) { entry in
                 entry.file = clip.sound
                 if let image = clip.image { entry.image = image }
             }
+            // Usually the clip overwrote the file. If it got a new name (a starter, a shared file, not a WAV),
+            // the old file goes, or upgrade would re-add it as a duplicate.
+            if let old { discardUnused(file: old.file, image: clip.image == nil ? nil : old.image) }
             selection = .sound(id)
         case .library:
             selection = .sound(addSound(file: clip.sound, name: clip.name, label: label, image: clip.image))
@@ -217,10 +221,24 @@ final class SettingsModel: ObservableObject {
                 }
             }
         }
-        let others = config.library
-        if !others.contains(where: { $0.file == entry.file }) { discard(entry.file, in: Paths.sounds) }
-        if let image = entry.image, !others.contains(where: { $0.image == image }) { discard(image, in: Paths.icons) }
+        discardUnused(file: entry.file, image: entry.image)
         selection = nil
+    }
+
+    /// The sound's file if re-clipping may overwrite it: a WAV of ours (not a starter in
+    /// /System/Library/Sounds) that no other sound plays.
+    func ownFile(of id: String) -> String? {
+        guard let file = entry(id)?.file, file.lowercased().hasSuffix(".wav"),
+              Paths.resolve(file, in: Paths.sounds).deletingLastPathComponent().standardizedFileURL == Paths.sounds.standardizedFileURL,
+              config.library.filter({ $0.file == file }).count == 1 else { return nil }
+        return file
+    }
+
+    /// Discards a sound file and image that no library entry uses any more.
+    private func discardUnused(file: String, image: String?) {
+        let library = config.library
+        if !library.contains(where: { $0.file == file }) { discard(file, in: Paths.sounds) }
+        if let image, !library.contains(where: { $0.image == image }) { discard(image, in: Paths.icons) }
     }
 
     /// Only files inside our own folders are removed; Trash first, else a "Deleted" subfolder
