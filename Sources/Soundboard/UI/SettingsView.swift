@@ -501,6 +501,8 @@ private struct LibraryRow: View {
         .background(RoundedRectangle(cornerRadius: 8).fill(selected ? Color.accentColor.opacity(0.25) : Color.clear))
         .contentShape(Rectangle())
         .onTapGesture { model.selection = .sound(entry.id) }
+        // Simultaneous, so a single click still selects without waiting out the double-click interval.
+        .simultaneousGesture(TapGesture(count: 2).onEnded { model.preview(entry) })
         .onDrag { NSItemProvider(object: (Payload.sound + entry.id) as NSString) }
         .contextMenu {
             Button("Place on First Empty Key") { model.placeOnFirstEmptyKey(entry.id) }
@@ -602,6 +604,9 @@ private struct KeyCell: View {
                         lineWidth: selected || targeted ? 3 : highlighted ? 2 : 1))
             .contentShape(Rectangle())
             .onTapGesture { model.selection = .key(index) }
+            .simultaneousGesture(TapGesture(count: 2).onEnded {
+                if button?.action == nil, let entry = model.config.entry(button?.sound) { model.preview(entry) }
+            })
             .onDrag { NSItemProvider(object: (Payload.key + String(index)) as NSString) }
             .onDrop(of: [.fileURL, .plainText], isTargeted: $targeted) { providers in
                 Payload.receive(providers,
