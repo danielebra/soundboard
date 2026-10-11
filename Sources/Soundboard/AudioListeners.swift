@@ -1,7 +1,7 @@
 import CoreAudio
 import Foundation
 
-/// Tells whether another app is reading input from a device (Zoom with BlackHole as its mic),
+/// Tells whether another app is reading input from a device (a meeting app with BlackHole as its mic),
 /// so the real mic only needs to be open while someone is listening.
 ///
 /// Uses CoreAudio's per-process objects (macOS 14+): each process reports whether it's running

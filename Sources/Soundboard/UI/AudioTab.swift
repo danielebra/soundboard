@@ -209,7 +209,7 @@ struct AudioTab: View {
         } header: {
             Text("Output")
         } footer: {
-            Text("The processed input and the sounds are mixed into this device. Select it as the microphone in your call app (Zoom, Meet, …); in Zoom, also tick **Original sound for musicians** so Zoom doesn't filter the sounds out.")
+            Text("The processed input and the sounds are mixed into this device. Select it as the microphone in Zoom, Google Meet, Teams, Discord or any other app. Turn off that app's own noise filtering (in Zoom: **Original sound for musicians**) so it doesn't remove the sounds.")
                 .foregroundStyle(.secondary)
         }
     }
