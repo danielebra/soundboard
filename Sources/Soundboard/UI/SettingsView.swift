@@ -192,10 +192,13 @@ final class SettingsModel: ObservableObject {
         let label = clip.showLabel || clip.image == nil ? clip.name : nil
         switch target {
         case let .replace(id):
+            let old = entry(id)
             editEntry(id) { entry in
                 entry.file = clip.sound
                 if let image = clip.image { entry.image = image }
             }
+            // The clip is saved under a new name; a stale file left in sounds/ would be re-added by upgrade.
+            if let old { discardUnused(file: old.file, image: clip.image == nil ? nil : old.image) }
             selection = .sound(id)
         case .library:
             selection = .sound(addSound(file: clip.sound, name: clip.name, label: label, image: clip.image))
@@ -217,10 +220,15 @@ final class SettingsModel: ObservableObject {
                 }
             }
         }
-        let others = config.library
-        if !others.contains(where: { $0.file == entry.file }) { discard(entry.file, in: Paths.sounds) }
-        if let image = entry.image, !others.contains(where: { $0.image == image }) { discard(image, in: Paths.icons) }
+        discardUnused(file: entry.file, image: entry.image)
         selection = nil
+    }
+
+    /// Discards a sound file and image that no library entry uses any more.
+    private func discardUnused(file: String, image: String?) {
+        let library = config.library
+        if !library.contains(where: { $0.file == file }) { discard(file, in: Paths.sounds) }
+        if let image, !library.contains(where: { $0.image == image }) { discard(image, in: Paths.icons) }
     }
 
     /// Only files inside our own folders are removed; Trash first, else a "Deleted" subfolder
