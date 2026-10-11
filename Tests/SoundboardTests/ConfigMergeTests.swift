@@ -81,3 +81,38 @@ final class ConfigMergeTests: XCTestCase {
         XCTAssertTrue(text.contains("true"), text)
     }
 }
+
+final class ConfigMergeRunTests: XCTestCase {
+    private func write(_ object: Any, to url: URL) throws {
+        try JSONSerialization.data(withJSONObject: object).write(to: url)
+    }
+
+    func testRunMergesFilesAndWritesTheResultOverOurs() throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let base = dir.appending(path: "base.json"), ours = dir.appending(path: "ours.json"), theirs = dir.appending(path: "theirs.json")
+        try write(["version": 2, "library": [["id": "a", "name": "A", "file": "a.wav"]], "pages": []], to: base)
+        try write(["version": 2, "library": [["id": "a", "name": "A", "file": "a.wav", "volume": 0.8]], "pages": []], to: ours)
+        try write(["version": 2, "library": [["id": "a", "name": "A", "file": "a.wav"], ["id": "b", "name": "B", "file": "b.wav"]],
+                   "pages": []], to: theirs)
+
+        XCTAssertEqual(ConfigMerge.run(base: base.path, ours: ours.path, theirs: theirs.path), 0)
+
+        let text = try String(contentsOf: ours, encoding: .utf8)
+        XCTAssertTrue(text.hasSuffix("\n"))
+        XCTAssertTrue(text.contains("\"volume\" : 0.8"), text)
+        let merged = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
+        XCTAssertEqual((merged["library"] as? [[String: Any]])?.compactMap { $0["id"] as? String }, ["a", "b"])
+    }
+
+    func testRunFailsWhenAFileIsMissingOrInvalid() throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let bad = dir.appending(path: "bad.json")
+        try Data("not json".utf8).write(to: bad)
+        XCTAssertEqual(ConfigMerge.run(base: bad.path, ours: bad.path, theirs: dir.appending(path: "missing.json").path), 1)
+        XCTAssertEqual(ConfigMerge.run(base: "", ours: bad.path, theirs: bad.path), 1)
+    }
+}
