@@ -78,19 +78,9 @@ func tool(_ name: String) -> String? {
     searchPath.map { "\($0)/\(name)" }.first { FileManager.default.isExecutableFile(atPath: $0) }
 }
 
-let mediaExtensions: Set<String> = ["mp3", "wav", "ogg", "oga", "m4a", "aac", "opus", "flac", "webm", "mp4", "mov", "m4v", "aif", "aiff", "caf"]
-let playableExtensions: Set<String> = ["mp3", "wav", "m4a", "aac", "flac", "mp4", "mov", "m4v", "aif", "aiff", "caf"]
 let userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
 
 let maxDownloadBytes = 200_000_000
-
-func isMedia(_ url: URL) -> Bool { mediaExtensions.contains(url.pathExtension.lowercased()) }
-
-func niceName(_ url: URL) -> String {
-    let stem = url.deletingPathExtension().lastPathComponent.removingPercentEncoding ?? url.deletingPathExtension().lastPathComponent
-    return stem.replacingOccurrences(of: "_", with: " ").replacingOccurrences(of: "-", with: " ")
-        .trimmingCharacters(in: .whitespaces)
-}
 
 // MARK: - Direct downloads
 
@@ -181,16 +171,6 @@ func servesMedia(_ url: URL) -> Bool {
 
 /// Undoes the escaping pages use when they embed data: HTML entities, Angular's
 /// transfer-state codes (&q; for a quote), and JSON's escaped slashes.
-func unescape(_ html: String) -> String {
-    var text = html
-    for (code, value) in [("&q;", "\""), ("&s;", "'"), ("&l;", "<"), ("&g;", ">"), ("&quot;", "\""), ("&#39;", "'"),
-                          ("&#x27;", "'"), ("&#x2F;", "/"), ("\\u002F", "/"), ("\\u002f", "/"), ("\\/", "/"),
-                          ("&a;", "&"), ("&amp;", "&")] {
-        text = text.replacingOccurrences(of: code, with: value)
-    }
-    return text
-}
-
 /// Sounds on a page. Looks in two places:
 /// - embedded data records, e.g. {"name": "Airhorn", "fileName": "abc.mp3", "url": "airhorn-123"},
 ///   which also give each sound a proper name;
