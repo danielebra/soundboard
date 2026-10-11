@@ -61,7 +61,7 @@ final class AssetCache {
     func render(_ face: KeyFace, size: Int, active: Bool) -> CGImage {
         var warning = face.dangling
         if let file = face.soundFile, case .failure = sound(file) { warning = true }
-        return KeyRenderer.key(size: size, label: face.label,
+        return KeyRenderer.key(size: size, label: face.label, labelPosition: face.labelPosition,
                                image: face.image.flatMap { icon($0) },
                                background: face.isEmpty ? CGColor(gray: 0, alpha: 1) : KeyRenderer.color(hex: face.color),
                                active: active, warning: warning)

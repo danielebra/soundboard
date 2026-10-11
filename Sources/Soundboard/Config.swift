@@ -9,6 +9,8 @@ struct SoundEntry: Codable, Equatable, Identifiable {
     var file: String
     /// Text drawn on the key.
     var label: String?
+    /// Where the label sits. `nil`: at the bottom over an image, else in the middle.
+    var labelPosition: LabelPosition?
     /// Image inside `icons/` (png, jpg, webp, gif), or an absolute / `~/` path.
     var image: String?
     /// Background colour as `#RRGGBB`, used when there is no image.
@@ -39,6 +41,7 @@ struct ButtonConfig: Codable, Equatable {
     var action: Action?
     /// Key cap for Stop / Bleep keys. Sound keys take theirs from the library.
     var label: String?
+    var labelPosition: LabelPosition?
     var image: String?
     var color: String?
 
@@ -54,6 +57,14 @@ struct ButtonConfig: Codable, Equatable {
         self.image = image
         self.color = color
     }
+}
+
+/// Where a key's label sits.
+enum LabelPosition: String, Codable, CaseIterable, Identifiable {
+    case top, middle, bottom
+
+    var id: String { rawValue }
+    var title: String { rawValue.capitalized }
 }
 
 /// The screen corner that opens the on-screen palette.
@@ -98,6 +109,7 @@ enum ShortcutModifiers: String, Codable, CaseIterable, Identifiable {
 /// How a key looks, resolved through the library.
 struct KeyFace {
     var label: String?
+    var labelPosition: LabelPosition?
     var image: String?
     var color: String?
     var isEmpty = false
@@ -224,12 +236,13 @@ struct Config: Codable, Equatable {
     func face(_ button: ButtonConfig?) -> KeyFace {
         guard let button else { return KeyFace(isEmpty: true) }
         if button.action != nil {
-            return KeyFace(label: button.label, image: button.image, color: button.color)
+            return KeyFace(label: button.label, labelPosition: button.labelPosition, image: button.image, color: button.color)
         }
         guard let entry = entry(button.sound) else {
             return KeyFace(label: button.sound == nil ? nil : "?", dangling: button.sound != nil)
         }
-        return KeyFace(label: entry.label, image: entry.image, color: entry.color, soundFile: entry.file)
+        return KeyFace(label: entry.label, labelPosition: entry.labelPosition, image: entry.image, color: entry.color,
+                       soundFile: entry.file)
     }
 
     /// Keys (page, index) that play this sound.

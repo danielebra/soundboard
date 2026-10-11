@@ -488,7 +488,8 @@ private struct LibraryRow: View {
     var body: some View {
         let _ = model.revision
         let selected = model.selection == .sound(entry.id)
-        let face = KeyFace(label: entry.label, image: entry.image, color: entry.color, soundFile: entry.file)
+        let face = KeyFace(label: entry.label, labelPosition: entry.labelPosition, image: entry.image, color: entry.color,
+                           soundFile: entry.file)
         let uses = model.config.usages(of: entry.id).count
         HStack(spacing: 10) {
             Image(decorative: model.assets.render(face, size: 96, active: false), scale: 2)
@@ -704,6 +705,7 @@ private struct KeyInspector: View {
 
             if let button, button.action != nil {
                 KeyCapFields(label: Binding { model.button(index)?.label } set: { v in model.editButton(index) { $0.label = v } },
+                             labelPosition: Binding { model.button(index)?.labelPosition } set: { v in model.editButton(index) { $0.labelPosition = v } },
                              image: Binding { model.button(index)?.image } set: { v in model.editButton(index) { $0.image = v } },
                              color: Binding { model.button(index)?.color } set: { v in model.editButton(index) { $0.color = v } },
                              chooseImage: {
@@ -824,6 +826,7 @@ private struct SoundFields: View {
             }
         }
         KeyCapFields(label: Binding { entry?.label } set: { v in model.editEntry(id) { $0.label = v } },
+                     labelPosition: Binding { entry?.labelPosition } set: { v in model.editEntry(id) { $0.labelPosition = v } },
                      image: Binding { entry?.image } set: { v in model.editEntry(id) { $0.image = v } },
                      color: Binding { entry?.color } set: { v in model.editEntry(id) { $0.color = v } },
                      chooseImage: {
@@ -834,6 +837,7 @@ private struct SoundFields: View {
 
 private struct KeyCapFields: View {
     @Binding var label: String?
+    @Binding var labelPosition: LabelPosition?
     @Binding var image: String?
     @Binding var color: String?
     let chooseImage: () -> Void
@@ -842,6 +846,13 @@ private struct KeyCapFields: View {
         Section("Key cap") {
             TextField("Label", text: Binding { label ?? "" } set: { label = $0.isEmpty ? nil : $0 },
                       prompt: Text("Text on the key"))
+            Picker("Label position", selection: Binding {
+                labelPosition ?? KeyRenderer.defaultLabelPosition(hasImage: image != nil)
+            } set: { labelPosition = $0 }) {
+                ForEach(LabelPosition.allCases) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .disabled(label == nil)
             HStack {
                 Text("Image")
                 Spacer()
