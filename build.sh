@@ -1,6 +1,6 @@
 #!/bin/bash
 # Builds Soundboard.app into ./build. Pass --install to copy it to /Applications.
-# SOUNDBOARD_VERSION / SOUNDBOARD_BUILD set the version shown in Finder (see the Makefile).
+# SOUNDBOARD_VERSION / SOUNDBOARD_BUILD override the bundle version.
 set -euo pipefail
 cd "$(dirname "$0")"
 

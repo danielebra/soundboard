@@ -3,7 +3,6 @@ on:
   workflow_call:
     inputs:
       tag:
-        description: Release to attach build/Soundboard.dmg to
         type: string
         required: true
 

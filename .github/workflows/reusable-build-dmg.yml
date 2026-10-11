@@ -3,7 +3,6 @@ on:
   workflow_call:
     inputs:
       version:
-        description: Version shown in Finder (CFBundleShortVersionString)
         type: string
         required: true
 

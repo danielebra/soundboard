@@ -13,9 +13,9 @@ network goes in the separate `SoundboardFetch` helper. Don't add packages.
 
 ```bash
 swift build -c release                 # both products
-make app                               # → build/Soundboard.app (helper embedded, ad-hoc signed; runs build.sh)
+make app                               # → build/Soundboard.app (helper embedded, ad-hoc signed)
 make install                           # → /Applications
-make dmg VERSION=1.2.0 BUILD=42        # → also build/Soundboard.dmg (VERSION/BUILD optional)
+make dmg VERSION=1.2.0                 # → build/Soundboard.dmg
 open build/Soundboard.app --args --settings            # open the window (Sounds & Keys)
 open build/Soundboard.app --args --audio               # … on the Audio tab
 open build/Soundboard.app --args --app-settings        # … on the Settings tab
@@ -37,12 +37,8 @@ SOUNDBOARD_DEBUG=1 …                   # log raw Stream Deck HID reports
 - After `pkill -x Soundboard`, wait ~2s before `open`, or `open` just reactivates the
   dying instance and the `--args` are ignored.
 
-- **CI** (`.github/workflows`): the files named after a trigger (`push-trunk.yml`, `manual-release.yml`)
-  only chain `reusable-*` workflows, and those only check out and run one `make` target. Keep logic in
-  the Makefile. Merges refresh the `release-candidate` notes (no build). Manual Release (takes a version)
-  checks it, builds the DMG on `macos-26`, tags that commit `v<version>`, creates the release with
-  `danielebra/simple-release-notes` (which only writes text), then `make upload-dmg` attaches the DMG.
-  The DMG is ad-hoc signed and not notarized, so Gatekeeper blocks the first launch.
+- **CI:** `push-trunk.yml` and `manual-release.yml` only chain `reusable-*` workflows, which run
+  `make` targets. Keep logic in the Makefile.
 
 ## Runtime layout
 

@@ -1,4 +1,3 @@
-# Sections for generated release notes, matched on the first PR label that appears here.
 changelog:
   categories:
     - title: 🎉 New Features

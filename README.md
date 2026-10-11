@@ -37,11 +37,8 @@ and in your headphones.
    ```bash
    make install
    ```
-   or download `Soundboard.dmg` from the repository's
-   [Releases](https://github.com/danielebra/soundboard/releases) and drag Soundboard into
-   Applications. The app isn't notarized (it's signed ad hoc, which needs no Apple account),
-   so the first launch is blocked: open **System Settings → Privacy & Security** and click
-   **Open Anyway**, or run `xattr -dr com.apple.quarantine /Applications/Soundboard.app`.
+   or download `Soundboard.dmg` from [Releases](https://github.com/danielebra/soundboard/releases).
+   It isn't notarized, so allow it the first time in **System Settings → Privacy & Security**.
 3. **Quit the Elgato Stream Deck app and Voicemod.** Elgato's app locks the device;
    Soundboard waits and takes over as soon as it's closed. Uninstall them if you like.
 4. **Open Soundboard** from /Applications. A grid icon appears in the menu bar. Allow
@@ -310,12 +307,5 @@ SOUNDBOARD_DEBUG=1 .build/release/Soundboard   # log raw key reports
 
 ### Releases
 
-- **Every merge to `master`** refreshes the **Release Candidate** pre-release notes:
-  everything merged since the last release. Nothing is built.
-- **To release**, run *Actions → Manual Release → Run workflow* with a version such as
-  `1.2.0`. It builds the DMG, tags that commit `v1.2.0`, publishes the release with notes
-  since the previous one and `Soundboard.dmg`, and clears the candidate.
-- Notes come from [simple-release-notes](https://github.com/danielebra/simple-release-notes)
-  and are grouped by PR label (`.github/release.yml`).
-- The workflows only call `make` targets: `make dmg VERSION=1.2.0` builds the same DMG
-  locally (`build/Soundboard.dmg`).
+Run *Actions → Manual Release* with a version such as `1.2.0`. `make dmg` builds the same
+DMG locally.
