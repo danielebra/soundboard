@@ -9,7 +9,10 @@ DMG := build/Soundboard.dmg
 export SOUNDBOARD_VERSION = $(VERSION)
 export SOUNDBOARD_BUILD = $(BUILD)
 
-.PHONY: app install dmg check-version tag upload-dmg
+.PHONY: test app install dmg check-version tag upload-dmg
+
+test:
+	swift test
 
 app:
 	./build.sh
