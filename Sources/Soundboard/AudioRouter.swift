@@ -225,11 +225,12 @@ private final class OutputBus {
         return tone
     }
 
-    /// Plays mic test recordings; skips the sound volume so you hear the mic as the listening app does.
-    func addPreviewPlayer() -> AVAudioPlayerNode {
+    /// A player outside the voice pool. Library sound previews go `throughEffects` to get the sound
+    /// volume like a key press; mic test recordings skip it so you hear the mic as the listening app does.
+    func addPreviewPlayer(throughEffects: Bool = false) -> AVAudioPlayerNode {
         let player = AVAudioPlayerNode()
         engine.attach(player)
-        engine.connect(player, to: engine.mainMixerNode, format: mixFormat)
+        engine.connect(player, to: throughEffects ? effects : engine.mainMixerNode, format: mixFormat)
         return player
     }
 
@@ -547,13 +548,16 @@ final class AudioRouter {
             if let device, device.id != output?.id {
                 do {
                     let bus = try OutputBus(device: device.id, voiceCount: voiceCount)
-                    bus.effects.outputVolume = config.monitorVolume
+                    // The monitor is the output's mix (without the mic) at your listening level,
+                    // so a sound is as loud against the others here as it is for the listeners.
+                    bus.effects.outputVolume = config.soundVolume
+                    bus.engine.mainMixerNode.outputVolume = config.monitorVolume
                     let tone = bus.addCensorTone(realtime)
-                    tone.volume = config.monitorVolume
+                    tone.volume = config.micVolume
                     let preview = bus.addPreviewPlayer()
                     built.monitorTone = tone
                     built.previewPlayer = preview
-                    built.soundPreview = bus.addPreviewPlayer()
+                    built.soundPreview = bus.addPreviewPlayer(throughEffects: true)
                     built.monitor = bus
                     built.status.monitor = device.name
                 } catch {
@@ -895,8 +899,9 @@ final class AudioRouter {
         broadcast?.effects.outputVolume = config.soundVolume
         micNode?.volume = config.micVolume
         broadcastTone?.volume = config.micVolume
-        monitor?.effects.outputVolume = config.monitorVolume
-        monitorTone?.volume = config.monitorVolume
+        monitor?.effects.outputVolume = config.soundVolume
+        monitor?.engine.mainMixerNode.outputVolume = config.monitorVolume
+        monitorTone?.volume = config.micVolume
         applyNoiseRemoval()
     }
 
@@ -958,7 +963,7 @@ final class AudioRouter {
     }
 
     /// Auditions a library sound on the monitor only, through the same path and volume as a key press
-    /// (the sound's volume, then the monitor volume), so it sounds like it will when played. Never
+    /// (sound volume, sounds volume, monitor volume), so it sounds like it will when played. Never
     /// reaches the output. Returns false when there's no monitor; the caller can play it another way.
     /// `done` runs on the main thread when it ends, is stopped or can't start.
     func previewSound(_ sound: AVAudioPCMBuffer, volume: Float, done: @escaping () -> Void) -> Bool {

@@ -322,7 +322,7 @@ final class SettingsModel: ObservableObject {
     }
 
     /// Plays a library sound on the monitor, the same way a key press does, so the volume matches.
-    /// Without a monitor it plays on the system output at the monitor volume.
+    /// Without a monitor it plays on the system output at the same volume.
     func preview(_ entry: SoundEntry) {
         if previewing || previewPlayer?.isPlaying == true {
             router?.stopSoundPreview()
@@ -338,7 +338,7 @@ final class SettingsModel: ObservableObject {
             return
         }
         previewPlayer = try? AVAudioPlayer(contentsOf: Paths.resolve(entry.file, in: Paths.sounds))
-        previewPlayer?.volume = volume * config.monitorVolume
+        previewPlayer?.volume = volume * config.soundVolume * config.monitorVolume
         previewPlayer?.play()
     }
 }
