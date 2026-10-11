@@ -538,9 +538,11 @@ private struct LibraryRow: View {
         .simultaneousGesture(TapGesture(count: 2).onEnded { model.preview(entry) })
         .onDrag { NSItemProvider(object: (Payload.sound + entry.id) as NSString) }
         .contextMenu {
-            Button("Place on First Empty Key") { model.placeOnFirstEmptyKey(entry.id) }
+            // Preview first: it's what double-clicking does.
             Button("Preview") { model.preview(entry) }
             Button("Play to Output") { model.playToOutput?(entry.id) }
+            Divider()
+            Button("Place on First Empty Key") { model.placeOnFirstEmptyKey(entry.id) }
             Divider()
             Button("Delete from Library…", role: .destructive) { confirmDelete = true }
         }
