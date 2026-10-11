@@ -46,7 +46,7 @@ struct SettingsTab: View {
             } header: {
                 Text("Keyboard Shortcuts")
             } footer: {
-                Text("Work from any app, without taking focus from it. Keys are numbered like the pad (left to right, top to bottom) on the page the Stream Deck shows. A Bleep key bleeps while you hold its shortcut. If they clash with another app's shortcuts, pick other modifier keys.")
+                Text("Work from any app, without taking focus from it. Keys are numbered like the pad (left to right, top to bottom) on the page the Stream Deck shows. Number-row and numeric-keypad digits both work. A Bleep key bleeps while you hold its shortcut. If they clash with another app's shortcuts, pick other modifier keys.")
                     .foregroundStyle(.secondary)
             }
 

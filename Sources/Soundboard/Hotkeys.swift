@@ -4,7 +4,7 @@ import Foundation
 /// What a global keyboard shortcut does. Keys are positions on the current page, like the
 /// deck's, so the shortcuts need no setup and follow the pad as it changes.
 enum ShortcutCommand: Hashable {
-    /// Key 1…10 of the current page (index 0…9), on the number row.
+    /// Key 1…10 of the current page (index 0…9), on the number row or the numeric keypad.
     case key(Int)
     case previousPage, nextPage, stopAll, palette
 
@@ -21,18 +21,25 @@ enum ShortcutCommand: Hashable {
         }
     }
 
-    /// Physical key (US positions, so other layouts use the same keys).
-    fileprivate var keyCode: Int {
+    /// Physical keys (US positions, so other layouts use the same keys). Digits and the period
+    /// work on the numeric keypad too.
+    fileprivate var keyCodes: [Int] {
         switch self {
         case let .key(index):
-            [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4, kVK_ANSI_5,
-             kVK_ANSI_6, kVK_ANSI_7, kVK_ANSI_8, kVK_ANSI_9, kVK_ANSI_0][index]
-        case .previousPage: kVK_ANSI_LeftBracket
-        case .nextPage: kVK_ANSI_RightBracket
-        case .stopAll: kVK_ANSI_Period
-        case .palette: kVK_ANSI_P
+            [[kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4, kVK_ANSI_5,
+              kVK_ANSI_6, kVK_ANSI_7, kVK_ANSI_8, kVK_ANSI_9, kVK_ANSI_0][index],
+             [kVK_ANSI_Keypad1, kVK_ANSI_Keypad2, kVK_ANSI_Keypad3, kVK_ANSI_Keypad4, kVK_ANSI_Keypad5,
+              kVK_ANSI_Keypad6, kVK_ANSI_Keypad7, kVK_ANSI_Keypad8, kVK_ANSI_Keypad9, kVK_ANSI_Keypad0][index]]
+        case .previousPage: [kVK_ANSI_LeftBracket]
+        case .nextPage: [kVK_ANSI_RightBracket]
+        case .stopAll: [kVK_ANSI_Period, kVK_ANSI_KeypadDecimal]
+        case .palette: [kVK_ANSI_P]
         }
     }
+
+    /// Every registered key combination; a hot key's id is its index here.
+    fileprivate static let bindings: [(command: ShortcutCommand, keyCode: Int)] =
+        all.flatMap { command in command.keyCodes.map { (command, $0) } }
 }
 
 extension ShortcutModifiers {
@@ -62,6 +69,7 @@ final class Hotkeys {
     /// Shortcuts being held, so a repeat can't press a key twice.
     private var held: Set<UInt32> = []
     private static let signature: OSType = 0x534E_4442 // "SNDB"
+    private let debug = ProcessInfo.processInfo.environment["SOUNDBOARD_DEBUG"] != nil
 
     private func register() {
         refs.forEach { UnregisterEventHotKey($0) }
@@ -69,15 +77,15 @@ final class Hotkeys {
         held.removeAll()
         guard modifiers != .off else { return }
         installHandler()
-        for (i, command) in ShortcutCommand.all.enumerated() {
+        for (i, binding) in ShortcutCommand.bindings.enumerated() {
             var ref: EventHotKeyRef?
             let id = EventHotKeyID(signature: Self.signature, id: UInt32(i))
-            let status = RegisterEventHotKey(UInt32(command.keyCode), modifiers.carbonFlags, id,
+            let status = RegisterEventHotKey(UInt32(binding.keyCode), modifiers.carbonFlags, id,
                                              GetApplicationEventTarget(), 0, &ref)
             if status == noErr, let ref {
                 refs.append(ref)
             } else {
-                NSLog("Soundboard: registering shortcut %@ failed (%d)", modifiers.symbols + command.keyName, status)
+                NSLog("Soundboard: registering shortcut %@ failed (%d)", modifiers.symbols + binding.command.keyName, status)
             }
         }
     }
@@ -101,12 +109,14 @@ final class Hotkeys {
     }
 
     private func handle(_ id: UInt32, pressed: Bool) {
-        guard ShortcutCommand.all.indices.contains(Int(id)) else { return }
+        guard ShortcutCommand.bindings.indices.contains(Int(id)) else { return }
+        let command = ShortcutCommand.bindings[Int(id)].command
+        if debug { NSLog("Soundboard: shortcut %@ %@", command.keyName, pressed ? "down" : "up") }
         if pressed {
             guard held.insert(id).inserted else { return }
         } else {
             guard held.remove(id) != nil else { return }
         }
-        onCommand?(ShortcutCommand.all[Int(id)], pressed)
+        onCommand?(command, pressed)
     }
 }

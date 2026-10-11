@@ -69,7 +69,7 @@ sandbox container: `Paths.home` uses `getpwuid`, and the entitlements grant a
 | `AudioDevices.swift` | CoreAudio device enumeration (timeout-guarded), change listener with snapshot dedupe |
 | `AudioListeners.swift` | Whether another app reads input from the output device (CoreAudio process objects) |
 | `StreamDeck.swift` | IOHIDManager + Stream Deck gen-2 protocol; retries when another app holds the device |
-| `Hotkeys.swift` | Global keyboard shortcuts (Carbon hot keys): number row plays keys 1–10, `[` `]` pages, `.` stop, `P` palette |
+| `Hotkeys.swift` | Global keyboard shortcuts (Carbon hot keys): number row or keypad plays keys 1–10, `[` `]` pages, `.` stop, `P` palette |
 | `Palette.swift` | On-screen palette for use without a deck: `CornerTrigger` (hot corner) + non-activating panel |
 | `KeyRenderer.swift` | CoreGraphics key/screen images, JPEG (rotated 180°) for the device |
 | `AssetCache.swift` | Decoded sounds (48 kHz stereo) and icons, cached by file mtime; renders `KeyFace` |
