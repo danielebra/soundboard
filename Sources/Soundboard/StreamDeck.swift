@@ -11,7 +11,7 @@ struct DeckModel {
     let screen: (width: Int, height: Int)?
 }
 
-let elgatoVendorID = 0x0fd9
+let deckVendorID = 0x0fd9
 
 /// Models that share the "gen 2" protocol (1024-byte JPEG image reports).
 /// Only the Neo has been tested on real hardware.
@@ -37,7 +37,7 @@ final class StreamDeckManager {
     private let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
 
     func start() {
-        IOHIDManagerSetDeviceMatching(manager, [kIOHIDVendorIDKey: elgatoVendorID] as CFDictionary)
+        IOHIDManagerSetDeviceMatching(manager, [kIOHIDVendorIDKey: deckVendorID] as CFDictionary)
         let context = Unmanaged.passUnretained(self).toOpaque()
         IOHIDManagerRegisterDeviceMatchingCallback(manager, { context, _, _, device in
             Unmanaged<StreamDeckManager>.fromOpaque(context!).takeUnretainedValue().attached(device)
@@ -50,7 +50,7 @@ final class StreamDeckManager {
         // Devices are opened one by one in `attached`, so a busy device can be retried.
     }
 
-    /// Plugged in but held exclusively by another app (usually Elgato's).
+    /// Plugged in but held exclusively by another app (such as the vendor's own software).
     private(set) var busyDevice: IOHIDDevice?
     private var retryTimer: Timer?
 
@@ -94,7 +94,7 @@ final class StreamDeckManager {
     }
 }
 
-/// Talks the Stream Deck HID protocol (same wire format as python-elgato-streamdeck).
+/// Talks the Stream Deck gen-2 HID protocol.
 final class StreamDeck {
     let device: IOHIDDevice
     let model: DeckModel
@@ -146,7 +146,7 @@ final class StreamDeck {
         sendFeature([0x03, 0x08, UInt8(clamping: max(0, min(100, percent)))])
     }
 
-    /// Clears the keys back to the Elgato logo.
+    /// Resets the device, which clears the keys back to its built-in logo.
     func reset() {
         sendFeature([0x03, 0x02])
     }
