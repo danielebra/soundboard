@@ -1,314 +1,128 @@
 # Soundboard
 
-A private, offline soundboard and mic mixer for macOS. Press a key and a sound effect
-plays into your meeting or stream, mixed live with your microphone, and in your headphones
-so you hear it too. Play the keys from a Stream Deck or from an on-screen palette.
+A private soundboard for your Mac. Press a key and a sound effect plays into your
+Zoom, Meet, Teams or Discord call, or your OBS stream, mixed live with your voice. You
+hear it in your headphones too.
 
-```
- Stream Deck ─USB─▶ Soundboard.app ──▶ BlackHole 2ch ──▶ Zoom, Meet, Teams, Discord, OBS…
- or palette            ▲      │                           (as your microphone)
-        your mic ──────┘      └──────▶ your headphones
-```
+Play the keys from a **Stream Deck**, or from an **on-screen palette** that pops out of a
+corner of your screen.
 
-- **A sound library** with key caps (label, image, colour), per-sound volume, and
-  toggle or overlay playback.
-- **A Sound Editor** that clips sounds from files, YouTube or soundboard websites, with
-  previews before anything is downloaded.
-- **Noise removal** on your mic (Apple's voice isolation), applied before the sounds are
-  mixed in so it never removes them.
-- **A bleep key** that mutes your mic and plays a censor tone while held.
-- **Sync** between your Macs through a private Git repository you own.
+## Features
 
-## Why it's private
+- **Your own sound library.** Drop in audio files, give each sound a label, picture and
+  colour, and lay them out on your keys.
+- **Clip sounds from anywhere.** The Sound Editor cuts the exact moment you want from a
+  file, a YouTube video or a soundboard website. Listen first, download only what you keep.
+- **Cleaner mic.** Built-in noise removal (Apple's Voice Isolation) cleans up your voice
+  without filtering out your sound effects.
+- **A bleep button.** Hold it to mute your mic and play a censor tone.
+- **A live display.** On the Stream Deck Neo, the screen shows the playing sound's
+  waveform, or your voice level during a call.
+- **Sync between your Macs.** Keep the same sounds and keys on every Mac, through a private
+  repository you own.
+- **Quiet when you're not using it.** Between calls, your mic and audio devices stay
+  closed, so the mic indicator stays off and your Mac can sleep.
 
-- **No network access, enforced by macOS.** The app runs in the App Sandbox *without*
-  the network entitlement, so the kernel refuses any connection it tries to make. You
-  can check: `codesign -d --entitlements - /Applications/Soundboard.app`.
-- **One small, separate helper does all downloading.** `SoundboardFetch` runs only when
-  you press Fetch or Find Sounds. It downloads the link (using the open-source
-  [yt-dlp](https://github.com/yt-dlp/yt-dlp) for video sites) and exits. The main app
-  hands it the link through a file and never touches the network itself. If you turn on
-  [Sync](#sync), the same helper runs `git` against the repository you chose, and nothing else.
-- **No third-party code.** Swift on Apple frameworks only (IOKit, CoreAudio,
-  AVFoundation, AppKit), so the whole app can be audited from this repository. No analytics, no crash reporter, no updater.
-- **Only touches its own folder.** The sandbox allows writes to
-  `~/Library/Application Support/Soundboard` and nothing else.
-- **BlackHole** (the virtual audio cable) is open-source (GPL-3), driver-only, and has
-  no network code: https://github.com/ExistentialAudio/BlackHole
+## Private by design
 
-## Setup
+- **The app can't go online.** macOS itself blocks it from making any network connection.
+- **Downloads are separate.** When you fetch a sound or sync, a small helper does just that
+  one job and quits. The main app never touches the internet.
+- **No tracking.** No analytics, no crash reporting, no accounts, no auto-updater.
+- **Nothing but Apple's own frameworks**, so all of the code is in this repository for
+  anyone to read.
 
-1. **Install BlackHole** (asks for your password, because it installs an audio driver):
+## Get started
+
+1. **Install BlackHole**, a free virtual audio cable that carries the mix to your other
+   apps. It asks for your password, because it installs an audio driver.
    ```bash
    brew install blackhole-2ch
    ```
-2. **Install the app.** Either build it:
-   ```bash
-   make install
-   ```
-   or download `Soundboard.dmg` from [Releases](https://github.com/danielebra/soundboard/releases).
-   It isn't notarized, so allow it the first time in **System Settings → Privacy & Security**.
-3. **Open Soundboard** from /Applications. A grid icon appears in the menu bar. Allow
-   microphone access when asked. If you use a Stream Deck, quit any other app that has
-   it open; Soundboard takes over as soon as the device is free.
-4. **In your meeting or streaming app's audio settings**, set the microphone to
-   **BlackHole 2ch** and turn off the app's own noise suppression, which would otherwise
-   filter out the sound effects as "noise" (see [App settings](#app-settings)). Then turn
-   on **Noise removal** in Soundboard's Audio tab: Soundboard cleans up your mic before
-   mixing in the sounds, so you keep noise suppression without it eating the effects.
+2. **Install Soundboard.** Download `Soundboard.dmg` from
+   [Releases](https://github.com/danielebra/soundboard/releases) and drag it to
+   Applications. The first time you open it, allow it in **System Settings → Privacy &
+   Security**.
+3. **Open Soundboard.** A grid icon appears in the menu bar. Allow microphone access when
+   asked. If you use a Stream Deck, quit Elgato's Stream Deck app first.
+4. **In your meeting or streaming app**, choose **BlackHole 2ch** as the microphone and
+   turn off its own noise suppression (it would treat your sound effects as noise). Then
+   turn on **Noise removal** in Soundboard's Audio tab instead.
+   - **Zoom:** Settings → Audio → tick *Original sound for musicians*.
+   - **Other apps:** turn the noise suppression or "background noise" setting off or to
+     its lowest level.
 
-Use **Open at Login** in the menu (right-click the menu bar icon) to have it start
-automatically.
+Wear **headphones**, or your mic picks the sounds up from your speakers and everyone
+hears them twice. To start Soundboard automatically, turn on **Open at Login** in the
+Settings tab.
 
-> When Soundboard isn't running, apps get silence from BlackHole. Switch back to your
+> When Soundboard isn't running, apps hear silence from BlackHole. Switch back to your
 > real mic, or keep Soundboard open.
 
-### App settings
+## Using Soundboard
 
-- **Zoom:** Settings → Audio, tick *Original sound for musicians*. Leave *High-fidelity
-  music mode* off, and keep *Echo cancellation* on if you don't wear headphones.
-- **Others:** look for a noise suppression or "background noise" setting and turn it off
-  or to its lowest level.
-
-## The Soundboard window
-
-Click the menu bar icon (right-click it for the menu). It's one window with five
-tabs, and a status strip along the bottom that shows the Stream Deck, the output, your
-mic, and sync.
+Click the menu bar icon to open the Soundboard window.
 
 ### Sounds & Keys
 
-- **Library (left):** every sound you've added, with its length and whether it's on the
-  pad. Search it, rename sounds, or drop audio files onto it to add them.
-- **Pad (middle):** your Stream Deck. Drag a sound from the library onto a key. Drag
-  keys to swap them, onto the page arrows to move them, or back onto the library to
-  take them off the pad. The sound stays in the library either way.
-- **Inspector (right):** edits the selected key or sound: name, key cap (label, image,
-  colour), play mode (tap to start/stop, or overlay), and volume. A sound's settings
-  apply to every key it's on.
+Your library is on the left and your keys in the middle. Drag a sound onto a key, drag
+keys around to rearrange them, and select a key or sound to change its name, picture,
+colour and volume.
+
+Each sound plays in one of two ways:
+
+- **Toggle** (the default): press to play, press again to stop. By default, starting
+  one stops the one that's playing.
+- **Overlay**: every press plays another copy on top, which suits quick stings like an
+  airhorn or a rimshot.
+
+There are also two special keys: **Stop** stops everything, and **Bleep** (hold it) mutes
+your mic and sends a censor tone instead. A green border shows what's playing.
 
 ### Sound Editor
 
-Make a new sound from any of three sources, then fine-tune it:
+Make a new sound from a file on your Mac, a YouTube link, or a soundboard website. Preview
+it first, then download just the part you need, drag across the waveform to pick the
+moment, and press **Save**. Clips get smooth fades and even volume, and a clip from a video
+gets a frame as its key picture.
 
-- **File on Disk:** choose a file, or drop any audio or video file onto the tab.
-- **YouTube:** paste a link and press **Look Up**. You see the title, channel, length
-  and thumbnail, with nothing downloaded yet. **Preview Audio** streams it with a seek
-  bar. Then **Download to Edit** fetches either the whole video (a small 480p copy) or
-  **just part of it**: mark the start and end from the preview position.
-- **Website:** paste a soundboard page (or a direct link to an audio file) and press
-  **Find Sounds**. It lists the sounds it finds, with their names where the site
-  provides them. **▶** streams one to listen to; **Use** downloads it for editing.
-
-Previews stream through the download helper straight to your speakers, and nothing is
-saved. Downloads over 200 MB, and links that turn out to be web pages, are refused.
-
-Then drag across the waveform to select the moment, adjust the handles, use **Zoom In**
-for precision, and press **Play Selection** (P) to check it. **Save** adds it to the
-library. If you started from a key (**Make a New Sound for This Key…**), it also goes on
-that key. **Re-clip in Sound Editor…** on a sound replaces its audio.
-
-Clips are saved as WAV with short fades so they don't click. By default they're evened
-out in volume, and for videos a frame becomes the key image. Downloads are temporary,
-and files macOS can't play (ogg, webm, opus) are converted with `ffmpeg`. YouTube and
-other video sites need `yt-dlp` (`brew install yt-dlp`). Only clip sounds you're
-allowed to use; some sites' terms forbid downloading.
+YouTube and other video sites need [yt-dlp](https://github.com/yt-dlp/yt-dlp)
+(`brew install yt-dlp`). Only clip sounds you're allowed to use.
 
 ### Audio
 
-Laid out in the order the signal flows, with a live level meter at each stage:
-
-- **Input**: your mic (or any input device), and whether it's routed to the output.
-- **Input processing**: **Noise removal** runs Apple's voice isolation (the same engine as
-  the macOS Voice Isolation mic mode) on the input only, before the sounds are mixed in.
-  It runs on your Mac and adds about 56 ms of delay while it's on, none while off.
-  **Strength** blends between the processed and the unprocessed input.
-- **Test input**: record until you press Stop (2 minutes at most), then play it back
-  processed or unprocessed. It plays on the monitor device only, never to the output.
-  Change the settings and play again to hear the same recording with them.
-- **Output**: the device the mix goes to (BlackHole 2ch, which your meeting app uses as
-  its microphone), and the input and sounds volumes in that mix.
-- **Monitor**: where you hear the sounds and input tests yourself.
-
-Between meetings Soundboard keeps every audio device closed, so macOS's mic indicator stays
-off and your Mac can sleep. The mic and output open as soon as another app listens to the
-output, or while this tab is open, and close a few seconds after. Pressing a key
-outside a meeting opens your headphones for that sound (about a tenth of a second) and keeps
-them open for 30 seconds after the last one.
-
-### Settings
-
-How you play the keys, and app-level options:
-
-- **Stream Deck**: key brightness.
-- **On-Screen Palette**: which screen corner opens the palette (see below), or Off.
-- **Playback**: whether starting a sound stops the one that's playing.
-- **General**: open Soundboard when you log in.
-
-### Sync
-
-Use the same sounds and keys on all your Macs by keeping them in a **private Git
-repository you own** (GitHub, GitLab, your own server, or even a bare repository on a
-shared drive).
-
-1. Create an empty private repository called `soundboard-config`.
-2. Check that this Mac can reach it: `git ls-remote <address>` in Terminal should finish
-   without asking for anything. Use an SSH address (`git@github.com:you/soundboard-config.git`)
-   with your SSH key, or an HTTPS one whose login is saved in the Keychain.
-3. Paste the address into the **Sync** tab and press **Connect**. Repeat on your other Macs.
-
-What syncs: the library, pages, sound files (`sounds/`) and key pictures (`icons/`).
-What doesn't: everything on the Audio and Settings tabs (devices, volumes, noise removal,
-brightness, palette corner…), because each Mac has its own devices and screens. Those
-live in `local.json`.
-
-- It only syncs when you do something: connect, launch Soundboard, change a sound or key
-  (it sends the change about 15 seconds later, picking up other Macs' changes on the way),
-  or press **Sync Now** (in the tab and the menu bar menu). Nothing syncs in the background.
-- A Mac that connects to a repository already in use keeps its own sounds but takes the
-  repository's keys.
-- Edits on different Macs merge: different sounds, different keys, or different settings
-  of the same sound all combine. If two Macs change the **same** key or setting before
-  syncing, the repository's version wins. A sound removed on one Mac but edited on the
-  other is kept. Every version stays in the repository's history.
-- Soundboard refuses a repository that already holds something else, and checks that it
-  can push before merging anything in.
-
-Your Soundboard folder becomes a Git work tree, and each change is a commit by
-"Soundboard (*your Mac's name*)". Git comes from Homebrew or Apple's developer tools
-(`xcode-select --install`). Signing in is done entirely by git and ssh, so Soundboard
-never sees a password or key, and git is never allowed to stop and ask: if it can't sign
-in, the Sync tab shows why.
-
-## Using it
-
-- **Toggle keys** (the default): press to play, press again to stop.
-- **Overlay keys**: every press plays another copy on top of whatever is already
-  playing, so they work well for quick stings like an airhorn or a rimshot.
-- A green border shows what's playing.
-- **The two touch buttons under the Neo's screen** switch pages.
-- **The Neo's screen** shows the playing sound's waveform, with how far it has got and
-  the time left. Otherwise, while your input is on (during a meeting), it shows your voice level over
-  the last few seconds. Green is what the output gets and grey is the raw input, so you can see
-  noise removal working. Red means the input clipped. A green person-with-waves icon
-  (Apple's Voice Isolation symbol) means noise removal is on. After a few seconds of silence the
-  screen stops updating.
-- **A `censor` key** (hold it) mutes your mic and sends a bleep instead.
-- **A `stop` key** stops everything.
+Pick your mic and your headphones, set the volumes of your voice and the sounds, and
+turn on noise removal. **Test input** records you so you can hear how you sound with and
+without noise removal.
 
 ### Without a Stream Deck
 
-Rest the pointer in the **bottom-left corner** of the screen for a moment and a small
-palette fans out of it: the same keys as the pad, on the same page, with the page
-switcher underneath when you have more than one. Click a key to play it; hold Bleep
-like you would on the deck. The palette never takes focus, so your meeting stays in front, and
-it folds away when the pointer leaves it or you click elsewhere. Menu → **Show Palette**
-opens it too.
+Rest the pointer in the **bottom-left corner** of the screen and a palette of your keys
+fans out. Click a key to play it. The palette never takes focus away from your meeting,
+and folds away when you move on. You can change the corner, or turn it off, in the
+Settings tab.
 
-Change the corner (or turn it off) on the Settings tab. Pick one macOS isn't using for its
-own Hot Corners (System Settings › Desktop & Dock › Hot Corners). On several displays,
-only corners that don't touch another display count. The corner only watches where the
-pointer is (no keyboard monitoring, and no Accessibility permission).
+### Sync between your Macs
 
-## Configuration
+1. Create an empty **private** repository (on GitHub, GitLab or your own server).
+2. Make sure this Mac can reach it: `git ls-remote <address>` in Terminal should finish
+   without asking for a password.
+3. Paste the address into the **Sync** tab and press **Connect**. Do the same on your
+   other Macs.
 
-Everything below can be set in the window. If you'd rather edit the files,
-use Menu → **Edit config.json** (or **Open Soundboard Folder**). Changes apply as
-soon as you save. `config.json` holds the sounds and keys, which [sync](#sync) between
-Macs. `local.json` holds this Mac's audio settings, which don't sync:
-
-```jsonc
-// local.json
-{
-  "outputDevice": "BlackHole 2ch",       // what other apps use as their mic
-  "micDevice": null,                     // null = macOS default input
-  "micPassthrough": true,                // route the input to the output
-  "micVolume": 1.0,
-  "noiseSuppression": true,              // noise removal on the input (not the sounds)
-  "noiseSuppressionStrength": 1.0,       // 0…1 mix of processed vs unprocessed input
-  "monitorDevice": null,                 // monitor device; null = default output
-  "monitor": true,
-  "monitorVolume": 0.5,
-  "soundVolume": 0.8,                    // sounds volume in the output mix
-  "stopOthers": true,                    // a toggle sound stops other toggle sounds
-  "brightness": 70,
-  "hotCorner": "bottomLeft",             // opens the on-screen palette: topLeft, topRight,
-                                         // bottomLeft, bottomRight or off
-  "syncRemote": null                     // Git repository to sync with (Sync tab)
-}
-
-// config.json
-{
-  "version": 2,
-  "library": [                           // every sound you've added, on the pad or not
-    { "id": "airhorn", "name": "Airhorn", "file": "airhorn.mp3", "label": "Airhorn", "color": "#dc2626" },
-    { "id": "meow", "name": "Meow", "file": "meow.wav", "image": "cat.png", "volume": 0.6, "mode": "overlay" }
-  ],
-  "pages": [
-    [                                    // keys left→right, top→bottom; null = blank
-      { "sound": "airhorn" },
-      { "sound": "meow" },
-      { "label": "STOP", "action": "stop", "color": "#dc2626" },
-      { "label": "BLEEP", "action": "censor" },
-      null
-    ]
-  ]
-}
-```
-
-- **Library sounds:**
-  - `file` is in `sounds/`, or an absolute or `~/` path. Supported formats are wav, mp3,
-    m4a, aiff, caf and flac. Ogg isn't supported, so convert it with
-    `ffmpeg -i in.ogg out.wav`.
-  - `image` is in `icons/` (png, jpg, webp or gif), cropped to fill the key.
-  - `label` is drawn on the key. `name` shows in the library and on the Neo's screen.
-  - `color` is the key's background colour when it has no image.
-  - `mode` is `"toggle"` (the default: tap to start, tap again to stop) or `"overlay"`
-    (each tap layers another copy, and other sounds never cut it off).
-- **Keys** point at a library sound by `id`, or are `stop` / `censor` keys with their own
-  `label`, `image` and `color`. Taking a sound off a key never deletes it from the library.
-- **Audio files dropped into `sounds/`** are added to the library automatically.
-
-Use **headphones** for monitoring. If the sounds come out of your speakers, your mic
-picks them up again and everyone hears them twice.
+Your sounds and keys sync; audio devices and volumes stay per Mac. Soundboard syncs when
+you make a change, open the app, or press **Sync Now**, never in the background. Edits
+from different Macs are merged, and every version is kept in the repository's history.
 
 ## Hardware
 
-Tested on the **Stream Deck Neo**. The original Stream Deck (v2), MK.2 and XL use the
-same protocol and are included, but they're untested. No deck? Use the
-[on-screen palette](#without-a-stream-deck).
+Made for the **Stream Deck Neo**. The original Stream Deck, MK.2 and XL should work too,
+but haven't been tested. No Stream Deck? Use the on-screen palette.
 
 Stream Deck is a trademark of Elgato. This project isn't affiliated with or endorsed by Elgato.
 
-## Development
+## More
 
-```bash
-swift build -c release
-.build/release/Soundboard --devices        # list audio devices
-.build/release/Soundboard --preview out/   # render keys to PNGs
-open build/Soundboard.app --args --settings          # open straight into Sounds & Keys
-open build/Soundboard.app --args --audio             # open the Audio tab
-open build/Soundboard.app --args --app-settings      # open the Settings tab
-open build/Soundboard.app --args --clip <file|link>  # open the Sound Editor with a file or link
-SOUNDBOARD_DEBUG=1 .build/release/Soundboard   # log raw key reports
-```
-
-| File | Purpose |
-| --- | --- |
-| `StreamDeck.swift` | USB HID protocol: key presses, JPEG key images, brightness |
-| `AudioRouter.swift` | Audio engines: sounds + mic → BlackHole, sounds → headphones |
-| `RingBuffer.swift` | Lock-free hand-off of mic audio between two device clocks |
-| `KeyRenderer.swift` | Draws keys and the Neo info screen |
-| `AppController.swift` | Menu bar, config loading, key → action wiring |
-| `UI/MainWindow.swift` | The single window: tabs and status strip |
-| `UI/SettingsView.swift` | Sounds & Keys tab: library, pad, inspector |
-| `UI/ClipEditor.swift` | Sound Editor tab: sources, waveform trimming, export |
-| `UI/SettingsTab.swift` | Settings tab: Stream Deck, palette corner, playback, open at login |
-| `Palette.swift` | On-screen palette and its hot corner, for use without a Stream Deck |
-| `UI/SyncTab.swift`, `Sync.swift` | Sync tab: sounds and keys in your own Git repository (run by the helper) |
-| `Fetcher.swift`, `SoundboardFetch/` | Download and sync helper (the only networked part) |
-
-### Releases
-
-Run *Actions → Manual Release* with a version such as `1.2.0`. `make dmg` builds the same
-DMG locally.
+- [Editing the config files](docs/configuration.md) by hand.
+- **Building from source:** `make install` builds the app and copies it to Applications.
+  See [CLAUDE.md](CLAUDE.md) for how it works inside.
