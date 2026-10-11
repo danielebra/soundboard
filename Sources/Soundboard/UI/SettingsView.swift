@@ -822,15 +822,12 @@ private struct SoundFields: View {
         Section("Sound") {
             TextField("Name", text: Binding { entry?.name ?? "" } set: { v in model.editEntry(id) { $0.name = v } },
                       prompt: Text("Shown in the library and on the Neo's screen"))
+            Text(entry?.file ?? "").lineLimit(1).truncationMode(.middle).foregroundStyle(.secondary)
             HStack {
-                Text(entry?.file ?? "").lineLimit(1).truncationMode(.middle).foregroundStyle(.secondary)
-                Spacer()
-                Button("Preview", systemImage: "headphones") { if let entry { model.preview(entry) } }
-                    .labelStyle(.iconOnly)
-                    .help("Preview: plays on your monitor only, so the call doesn't hear it")
                 Button("Play to Output", systemImage: "dot.radiowaves.left.and.right") { model.playToOutput?(id) }
-                    .labelStyle(.iconOnly)
-                    .help("Plays like a key press, so the call hears it too. Click again to stop.")
+                    .help("Plays it like a key press, so the call hears it too. Click again to stop.")
+                Button("Preview", systemImage: "headphones") { if let entry { model.preview(entry) } }
+                    .help("Plays it in your headphones only, so the call doesn't hear it")
             }
             HStack {
                 Button("Replace Audio…") {
@@ -886,6 +883,7 @@ private struct KeyCapFields: View {
                     Text(image).lineLimit(1).truncationMode(.middle).foregroundStyle(.secondary)
                     Button("Remove", systemImage: "xmark.circle.fill") { self.image = nil }
                         .labelStyle(.iconOnly).buttonStyle(.borderless)
+                        .help("Remove the image")
                 }
                 Button("Choose…", action: chooseImage)
             }

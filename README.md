@@ -86,8 +86,8 @@ There are also two special keys: **Stop** stops everything, and **Bleep** (hold 
 your mic and sends a censor tone instead. A green border shows what's playing.
 
 Double-click a sound or key to play it to the call, like pressing it on the deck. To hear it
-yourself first, right-click it in the library and choose **Preview**, or press the headphones
-button in its settings: only you hear a preview, in your headphones.
+yourself first, right-click it in the library and choose **Preview**, or press **Preview**
+in its settings: only you hear a preview, in your headphones.
 
 ### Sound Editor
 
