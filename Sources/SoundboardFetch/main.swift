@@ -8,7 +8,7 @@ import Foundation
 //
 //   {"link": …, "mode": …, "title": optional, "section": optional "start-end" seconds}
 //
-//   info     Video details only (title, channel, length, thumbnail) — nothing else downloaded.
+//   info     Video details only (title, channel, length, thumbnail); nothing else downloaded.
 //   preview  Streams the audio to the speakers without saving it. "kind": "video" streams a
 //            YouTube/video-site link (via yt-dlp), otherwise the link is an audio file.
 //            Seeks when <job>.seek (seconds) appears; stops on <job>.cancel.
@@ -110,7 +110,7 @@ func download(_ url: URL, title: String) throws -> (file: String, title: String)
         } else if let type = response?.mimeType?.lowercased(), type.hasPrefix("text/") || type.contains("html") {
             outcome = .failure(FetchError(message: "That link is a web page, not a sound file."))
         } else if let temp, let size = try? temp.resourceValues(forKeys: [.fileSizeKey]).fileSize, size > maxDownloadBytes {
-            outcome = .failure(FetchError(message: "That file is over \(maxDownloadBytes / 1_000_000) MB — too big for a sound effect."))
+            outcome = .failure(FetchError(message: "That file is over \(maxDownloadBytes / 1_000_000) MB, too big for a sound effect."))
         } else if let temp {
             do {
                 try? FileManager.default.removeItem(at: target)
@@ -478,7 +478,7 @@ func preview(_ url: URL) throws {
         let position = player.currentTime().seconds
         let buffering = item.status != .readyToPlay || player.timeControlStatus == .waitingToPlayAtSpecifiedRate
         if item.status != .readyToPlay, Date().timeIntervalSince(started) > 20 {
-            throw FetchError(message: "The preview didn't start — the site may be blocking it.")
+            throw FetchError(message: "The preview didn't start. The site may be blocking it.")
         }
         if shared.ended || (duration > 0 && position >= duration - 0.05) {
             report(["state": "ended", "position": duration, "duration": duration])
@@ -525,7 +525,7 @@ do {
         // Never downloads: lists what's there so it can be previewed first.
         let found = isMedia(url) ? (choices: [(url: url, name: niceName(url))], pageTitle: "") : try findMedia(on: url)
         if found.choices.isEmpty {
-            throw FetchError(message: "No sounds found on that page. If it's a video, try the YouTube tab — it works with many video sites.")
+            throw FetchError(message: "No sounds found on that page. If it's a video, try the YouTube tab, which works with many video sites.")
         }
         report(["state": "choices", "title": found.pageTitle,
                 "choices": found.choices.map { ["url": $0.url.absoluteString, "name": $0.name] }])

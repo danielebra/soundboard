@@ -596,7 +596,7 @@ private struct ChoiceList: View {
                 Spacer()
                 TextField("Filter", text: $filter, prompt: Text("Filter")).textFieldStyle(.roundedBorder).frame(width: 200)
             }
-            Text("Press ▶ to listen — it streams without saving anything. Press Use to download it for editing.")
+            Text("Press ▶ to listen; it streams without saving anything. Press Use to download it for editing.")
                 .font(.caption).foregroundStyle(.secondary)
             List(choices.filter { filter.isEmpty || $0.name.localizedCaseInsensitiveContains(filter) }) { choice in
                 let playing = preview.isPlaying(choice.url)
@@ -683,7 +683,7 @@ private struct VideoInfoCard: View {
                 }
                 .padding(6)
             } label: {
-                Text("Preview — streams the audio, nothing is saved")
+                Text("Preview: streams the audio, nothing is saved")
             }
 
             GroupBox {

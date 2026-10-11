@@ -21,6 +21,6 @@
     <key>LSUIElement</key>
     <true/>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Soundboard mixes your microphone with sound effects so Zoom hears both.</string>
+    <string>Soundboard mixes your microphone with sound effects, so the apps you talk in hear both.</string>
 </dict>
 </plist>

@@ -34,7 +34,7 @@ enum Fetcher {
     enum Status {
         case progress(Double, String)
         case done(URL, title: String)
-        /// The sounds found on a page — preview them, then fetch one with `.direct`.
+        /// The sounds found on a page: preview them, then fetch one with `.direct`.
         case choices([Choice], pageTitle: String)
         case info(VideoInfo)
     }
@@ -56,7 +56,7 @@ enum Fetcher {
     static func launch(_ fields: [String: String]) throws -> String {
         try FileManager.default.createDirectory(at: downloads, withIntermediateDirectories: true)
         guard FileManager.default.fileExists(atPath: helperURL.path) else {
-            throw AudioError.message("Download helper missing — rebuild with ./build.sh")
+            throw AudioError.message("Download helper missing. Rebuild with ./build.sh")
         }
         let job = String(UUID().uuidString.prefix(8)).lowercased()
         let request = try JSONSerialization.data(withJSONObject: fields)

@@ -451,7 +451,7 @@ private struct LibraryPanel: View {
                 }
             }
 
-            Text("Drag a sound onto a key. Drag a key back here to take it off the pad — the sound stays in your library.")
+            Text("Drag a sound onto a key. Drag a key back here to take it off the pad; the sound stays in your library.")
                 .font(.caption).foregroundStyle(.secondary)
         }
         .padding(14)
@@ -686,7 +686,7 @@ private struct KeyInspector: View {
             if let id = button?.sound, button?.action == nil, model.entry(id) != nil {
                 let uses = model.config.usages(of: id).count
                 if uses > 1 {
-                    Text("This sound is on \(uses) keys — changes below apply to all of them.")
+                    Text("This sound is on \(uses) keys. Changes below apply to all of them.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 SoundFields(model: model, id: id)

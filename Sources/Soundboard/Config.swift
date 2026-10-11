@@ -42,7 +42,7 @@ struct ButtonConfig: Codable, Equatable {
     var image: String?
     var color: String?
 
-    /// Version 1 only — moved into the library by `Config.upgrade`.
+    /// Version 1 only: moved into the library by `Config.upgrade`.
     var name: String?
     var volume: Float?
     var mode: Mode?
@@ -93,14 +93,14 @@ struct KeyFace {
 
 struct Config: Codable, Equatable {
     var version = 2
-    /// Virtual device Zoom listens to. Sounds + your mic are mixed into it.
+    /// Virtual device other apps use as their mic. Sounds + your mic are mixed into it.
     var outputDevice = "BlackHole 2ch"
     /// Your real microphone. `nil` uses the macOS default input.
     var micDevice: String?
     var micPassthrough = true
     var micVolume: Float = 1.0
-    /// Apple's voice isolation on the mic only, before sounds are mixed in, so Zoom can run in
-    /// Original Sound mode without clipping effects.
+    /// Apple's voice isolation on the mic only, before sounds are mixed in, so you keep noise
+    /// suppression with the meeting app's own filter (which would remove the effects) turned off.
     var noiseSuppression = false
     /// 0…1 wet/dry mix of the voice isolation.
     var noiseSuppressionStrength: Float = 1.0

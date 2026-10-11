@@ -1,8 +1,8 @@
-# Soundboard — notes for agents
+# Soundboard: notes for agents
 
-A private, offline macOS replacement for Elgato Stream Deck software + Voicemod: a
-Stream Deck Neo triggers sound effects that are mixed with the user's mic into a
-virtual audio device (BlackHole 2ch) that Zoom uses as its microphone. User-facing docs
+A private, offline macOS soundboard and mic mixer: a Stream Deck (or the on-screen
+palette) triggers sound effects that are mixed with the user's mic into a virtual audio
+device (BlackHole 2ch) that meeting and streaming apps use as their microphone. User-facing docs
 are in `README.md`; this file is the architecture and the lessons learned.
 
 **Prime directive: privacy.** The main app must stay offline (sandbox, no network
@@ -31,7 +31,7 @@ SOUNDBOARD_DEBUG=1 …                   # log raw Stream Deck HID reports
 - Swift tools 6.0 with **Swift 5 language mode** (`Package.swift`): strict concurrency
   would fight the C callbacks. Regex literals (`/…/`) don't compile in this mode; use
   `NSRegularExpression` or manual parsing.
-- macOS 15+ (uses `Synchronization.Atomic`). The dev machine is Apple Silicon (M4 Max) on macOS 26.
+- macOS 15+ (uses `Synchronization.Atomic`).
 - There's no test target. Verification has been done with snapshots, small `swiftc`
   harnesses and helper runs (see Testing).
 - After `pkill -x Soundboard`, wait ~2s before `open`, or `open` just reactivates the
@@ -45,7 +45,7 @@ SOUNDBOARD_DEBUG=1 …                   # log raw Stream Deck HID reports
 ```
 Stream Deck ─HID─▶ Soundboard.app (sandboxed, no network)
                     ├─ mic engine ──ring buffer──┐
-                    ├─ broadcast engine ◀────────┘ + sound voices ─▶ BlackHole 2ch ─▶ Zoom
+                    ├─ broadcast engine ◀────────┘ + sound voices ─▶ BlackHole 2ch ─▶ meeting app
                     └─ monitor engine (sound voices) ─▶ headphones
                    NSWorkspace launch + files in downloads/
                     └─▶ SoundboardFetch.app (not sandboxed; yt-dlp, URLSession, ffmpeg)
@@ -81,7 +81,6 @@ sandbox container: `Paths.home` uses `getpwuid`, and the entitlements grant a
 | `SoundboardFetch/main.swift` | Helper: `info`, `preview`, `video`, `page`, `direct`, `sync` modes |
 | `SoundboardFetch/GitSync.swift` | `sync` mode: commit, fetch, merge, push with the Mac's git (`Git` runner) |
 | `SoundboardFetch/ConfigMerge.swift` | config.json three-way merge driver (`--merge-config %O %A %B`) |
-| `tools/import_voicemod.py` | One-off importer from Voicemod cache + Elgato profiles (writes a v1 config) |
 
 ## Data model (config.json v2)
 
@@ -105,7 +104,7 @@ sandbox container: `Paths.home` uses `getpwuid`, and the entitlements grant a
 - `SettingsModel.update` debounces commits (0.25 s). `external(_:)` ignores incoming
   configs while a commit is pending, so in-flight edits aren't clobbered.
 
-## Audio engine — lessons learned
+## Audio engine: lessons learned
 
 - **One engine per device.** On macOS an AVAudioEngine's I/O unit binds to one device,
   so there are separate mic, broadcast (BlackHole) and monitor engines. Devices are
@@ -123,7 +122,7 @@ sandbox container: `Paths.home` uses `getpwuid`, and the entitlements grant a
 - **Setup runs in two stages** on `setupQueue`: `buildLocal` (mic + monitor) is installed first,
   then `buildBroadcast` (the output device). A hung BlackHole therefore only blocks the output;
   the input meter, monitor and input test still work. `install` merges each stage.
-- **A hung mic blocks everything behind it.** Overnight the USB mic's `MicCapture.init` blocked in a HAL
+- **A hung mic blocks everything behind it.** Once, a USB mic's `MicCapture.init` blocked in a HAL
   call forever, and since `buildLocal` runs before `buildBroadcast` on one queue, no sound reached
   the headphones or BlackHole. The mic now opens through `openMic` with a 5 s timeout (shown as a mic problem).
 - **Engines run on demand.** All three engines are built but not started. `Demand` decides
@@ -158,7 +157,7 @@ sandbox container: `Paths.home` uses `getpwuid`, and the entitlements grant a
   `AudioDevices.all()` times out after 0.5 s and returns a cached list. Keep any new HAL
   calls off the main thread.
 - **Noise suppression** is `AUSoundIsolation` (Apple, macOS 13+) between the mic source node and
-  the broadcast mixer, so it never touches the sounds and Zoom can run in Original Sound. It
+  the broadcast mixer, so it never touches the sounds and the meeting app's own noise filter can stay off. It
   stays in the graph and is toggled by `bypass` and its wet/dry parameter, both live. Measured:
   ~56 ms latency at any mic rate (the dry path is delay-aligned, so partial strength doesn't comb),
   zero when bypassed, ~50–70 dB off broadband noise, ~1 dB off speech. The censor bleep is a
@@ -197,12 +196,12 @@ page back/forward), and a 248×58 info screen.
   `CornerTrigger` uses `NSEvent` mouse-moved monitors (global + local); mouse monitors need no
   Accessibility permission and work from the sandbox (verified). It waits 0.15 s in the corner,
   then re-arms once the pointer leaves. The panel is `.nonactivatingPanel` at `.popUpMenu` level
-  and can't become key, so clicks never take focus from Zoom. It closes on a click elsewhere
+  and can't become key, so clicks never take focus from the meeting app. It closes on a click elsewhere
   (global mouse-down monitor) or when a 10 Hz poll, which runs only while it's open, finds the pointer gone.
   `open … --args --palette --snapshot 2` shows and snapshots it (rendered from its layers).
   Synthetic mouse events from the agent shell are dropped (no Accessibility), so the hot corner
   itself has to be tried by hand.
-- The Elgato app opens the device exclusively (`0xe00002c5`), so `StreamDeckManager` retries every 2 s.
+- The vendor's own app opens the device exclusively (`0xe00002c5`), so `StreamDeckManager` retries every 2 s.
 - Other gen-2 models are in the table but untested.
 
 ## The helper (`SoundboardFetch`) protocol
@@ -268,12 +267,10 @@ and thumbnail on reset.
 
 - **Ad-hoc signing changes every build**, so macOS privacy (TCC) treats each build as a new
   app. The mic permission prompt can reappear, and the TCC check can block until it's answered.
-- **Voicemod's own library sounds** in its cache are scrambled. User uploads are plain
-  Ogg. Don't try to decrypt Voicemod content.
 - **`screencapture` isn't permitted** from the agent shell; use `--snapshot`. It draws
   the largest visible window via `cacheDisplay`, so AVPlayerView content shows black
   and views need an explicit background.
-- **Don't make audible test noise** on the user's Mac: preview tests used a silent file
+- **Don't make audible test noise** on the dev machine: preview tests used a silent file
   served by `python3 -m http.server` on 127.0.0.1. Test videos were Big Buck Bunny (open-licensed, Blender).
 - **Live SwiftUI views must not invalidate the window.** The Audio tab once used ~24% of a core on
   the main thread just for its meters. Three things fixed it: each meter is its own `LevelMeter`
@@ -282,4 +279,4 @@ and thumbnail on reset.
   `NSHostingController` has `sizingOptions = []` (otherwise every update re-measures the whole
   window). Profile with `sample <pid> 5` and look at the main thread.
 - **`rm` on a shell variable gets blocked** by a safety check; use `"${VAR:?}"`.
-- **Commits:** small and incremental, **no Co-Authored-By trailer** (user preference).
+- **Commits:** small and incremental, **no Co-Authored-By trailer**.

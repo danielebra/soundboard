@@ -225,7 +225,7 @@ private final class OutputBus {
         return tone
     }
 
-    /// Plays mic test recordings; skips the sound volume so you hear the mic as Zoom does.
+    /// Plays mic test recordings; skips the sound volume so you hear the mic as the listening app does.
     func addPreviewPlayer() -> AVAudioPlayerNode {
         let player = AVAudioPlayerNode()
         engine.attach(player)
@@ -299,14 +299,14 @@ private func openMic(device: AudioDeviceID, taps: TapState, timeout: TimeInterva
         let missed = result == nil
         if missed { abandoned = true }
         lock.unlock()
-        if missed { throw AudioError.message("didn't respond — unplug and replug it") }
+        if missed { throw AudioError.message("didn't respond. Unplug and replug it") }
     }
     lock.lock()
     defer { lock.unlock() }
     return try result!.get()
 }
 
-/// Routes sounds (and your microphone) to the virtual device Zoom listens to, and
+/// Routes sounds (and your microphone) to the virtual device other apps use as a mic, and
 /// mirrors the sounds to your own speakers/headphones.
 final class AudioRouter {
     struct Status {
@@ -328,7 +328,7 @@ final class AudioRouter {
     /// noise removal and the devices (which keep the Mac awake while open) are idle between calls.
     struct Demand: OptionSet {
         let rawValue: Int
-        /// Another app reads from the output device (Zoom in a call): everything runs.
+        /// Another app reads from the output device (a meeting is on): everything runs.
         static let listener = Demand(rawValue: 1)
         /// The Audio tab's meters and input test: everything runs.
         static let audioTab = Demand(rawValue: 2)
@@ -360,11 +360,11 @@ final class AudioRouter {
     static let chunkSeconds = 0.05
 
     private(set) var status = Status()
-    /// (sound key, isPlaying) — always on the main thread.
+    /// (sound key, isPlaying), always on the main thread.
     var onPlaybackChange: ((String, Bool) -> Void)?
     /// An engine stopped because a device changed underneath it.
     var onNeedsRebuild: (() -> Void)?
-    /// Devices finished opening (or failed) — `status` is up to date.
+    /// Devices finished opening (or failed); `status` is up to date.
     var onStatusChange: (() -> Void)?
 
     private let voiceCount = 12
@@ -488,7 +488,7 @@ final class AudioRouter {
         updateEngines(stopping: false)
 
         // A device change can stop an engine; rebuild only then. Engines also post this
-        // notification harmlessly right after we move them off the default device —
+        // notification harmlessly right after we move them off the default device:
         // rebuilding on those would restart the mic forever.
         let engines = [built.broadcast?.engine, built.monitor?.engine, built.mic?.engine].compactMap { $0 }
         for engine in engines {
@@ -516,7 +516,7 @@ final class AudioRouter {
                 built.status.micProblem = "Microphone access not granted"
             } else if let device {
                 if device.name.localizedCaseInsensitiveContains(config.outputDevice) {
-                    built.status.micProblem = "Input is the same device as the output — pick a different input"
+                    built.status.micProblem = "Input is the same device as the output. Pick a different input"
                 } else {
                     do {
                         // Started by `updateEngines` once something needs it.
@@ -556,13 +556,13 @@ final class AudioRouter {
         return built
     }
 
-    /// Opens the virtual device Zoom listens to and feeds it the mic. This is the call that
+    /// Opens the virtual output device and feeds it the mic. This is the call that
     /// hangs when BlackHole's driver is stuck.
     private static func buildBroadcast(config: Config, mic: MicCapture?, realtime: RealtimeState, taps: TapState,
                                        voiceCount: Int) -> Built {
         var built = Built(isBroadcastStage: true)
         guard let device = AudioDevices.find(config.outputDevice, output: true) else {
-            built.status.outputProblem = "“\(config.outputDevice)” not found — is BlackHole installed?"
+            built.status.outputProblem = "“\(config.outputDevice)” not found. Is BlackHole installed?"
             return built
         }
         built.outputDevice = device.id
@@ -631,7 +631,7 @@ final class AudioRouter {
     // MARK: Engines on demand (main thread)
 
     /// Starts what's needed right away, and stops the rest a few seconds after the last
-    /// reason goes away (so a quick restart in Zoom doesn't bounce the devices).
+    /// reason goes away (so an app that briefly stops listening doesn't bounce the devices).
     func setDemand(_ reason: Demand, _ on: Bool) {
         if on { demand.insert(reason) } else { demand.remove(reason) }
         pauseWork?.cancel()
@@ -924,7 +924,7 @@ final class AudioRouter {
     func takeTestRecording() -> MicClip? { taps.takeFinished() }
 
     /// Plays `clip` on your headphones only, through the current mic volume and (when `cleaned`)
-    /// noise suppression — the same chain Zoom hears, so you can change settings and replay it.
+    /// noise suppression: the same chain the output gets, so you can change settings and replay it.
     func playTest(_ clip: MicClip, cleaned: Bool, config: Config, done: @escaping () -> Void) {
         guard let player = previewPlayer, canPlayTest else { return done() }
         previewToken += 1

@@ -468,15 +468,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
         if let deck = decks.deck {
             info("✓ \(deck.model.name)")
         } else if decks.busyDevice != nil {
-            info("✗ Stream Deck is in use by another app")
+            info("✗ Stream Deck is in use by another app (quit it to connect)")
         } else {
             info("✗ No Stream Deck connected")
         }
-        if !NSRunningApplication.runningApplications(withBundleIdentifier: "com.elgato.StreamDeck").isEmpty {
-            info("⚠︎ Quit the Elgato Stream Deck app — it locks the device")
-        }
         if let device = status.connecting {
-            info("⏳ Opening \(device)… (if this stays, the audio driver is stuck — restart your Mac)")
+            info("⏳ Opening \(device)… (if this stays, the audio driver is stuck; restart your Mac)")
         } else {
             info(status.output.map { "✓ Output: \($0)\(status.outputLive ? "" : " (standby until an app listens)")" }
                 ?? "✗ \(status.outputProblem ?? "No output")")
