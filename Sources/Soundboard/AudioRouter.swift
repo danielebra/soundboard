@@ -281,29 +281,33 @@ private final class MicCapture {
 /// overnight can block the CoreAudio call forever, which would otherwise stall the headphones
 /// and the virtual device behind it. A mic that opens after we gave up is stopped and dropped.
 private func openMic(device: AudioDeviceID, taps: TapState, timeout: TimeInterval = 5) throws -> MicCapture {
-    let lock = NSLock()
-    var result: Result<MicCapture, Error>?
-    var abandoned = false
+    /// State shared with the opening thread, guarded by `lock`.
+    final class Handoff: @unchecked Sendable {
+        let lock = NSLock()
+        var result: Result<MicCapture, Error>?
+        var abandoned = false
+    }
+    let handoff = Handoff()
     let done = DispatchSemaphore(value: 0)
     DispatchQueue.global(qos: .userInitiated).async {
         let made = Result { try MicCapture(device: device, taps: taps) }
-        lock.lock()
-        let late = abandoned
-        if !late { result = made }
-        lock.unlock()
+        handoff.lock.lock()
+        let late = handoff.abandoned
+        if !late { handoff.result = made }
+        handoff.lock.unlock()
         if late, case .success(let mic) = made { mic.engine.stop() }
         done.signal()
     }
     if done.wait(timeout: .now() + timeout) == .timedOut {
-        lock.lock()
-        let missed = result == nil
-        if missed { abandoned = true }
-        lock.unlock()
+        handoff.lock.lock()
+        let missed = handoff.result == nil
+        if missed { handoff.abandoned = true }
+        handoff.lock.unlock()
         if missed { throw AudioError.message("didn't respond. Unplug and replug it") }
     }
-    lock.lock()
-    defer { lock.unlock() }
-    return try result!.get()
+    handoff.lock.lock()
+    defer { handoff.lock.unlock() }
+    return try handoff.result!.get()
 }
 
 /// Routes sounds (and your microphone) to the virtual device other apps use as a mic, and
