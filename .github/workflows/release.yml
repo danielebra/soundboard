@@ -1,0 +1,85 @@
+# Run by hand (Actions → Release → Run workflow) with a version like 1.2.0: builds the DMG
+# from master, tags it v1.2.0, publishes the release with notes since the last one, and
+# clears the Release Candidate.
+name: Release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version, e.g. 1.2.0
+        type: string
+        required: true
+
+jobs:
+  prepare:
+    name: Check version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      tag: ${{ steps.check.outputs.tag }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT: ${{ inputs.version }}
+        run: |
+          VERSION="${INPUT#v}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+            echo "::error::Version must look like 1.2.0 (got '$INPUT')"; exit 1
+          fi
+          if [[ "$GITHUB_REF" != "refs/heads/master" ]]; then
+            echo "::error::Releases are cut from master (got $GITHUB_REF)"; exit 1
+          fi
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$VERSION" >/dev/null 2>&1; then
+            echo "::error::Tag v$VERSION already exists"; exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: prepare
+    uses: ./.github/workflows/build.yml
+    with:
+      version: ${{ needs.prepare.outputs.version }}
+
+  # Tag the exact commit that was built, before the release is created (otherwise
+  # GitHub would tag whatever master is by then).
+  tag:
+    needs: [prepare, build]
+    name: Tag ${{ needs.prepare.outputs.tag }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$TAG" -f sha="$GITHUB_SHA"
+
+  notes:
+    needs: [prepare, tag]
+    name: Create Release Notes
+    permissions:
+      id-token: write
+      contents: write
+    uses: danielebra/simple-release-notes/.github/workflows/reusable-create-release-notes.yml@v0.3
+    with:
+      tag: ${{ needs.prepare.outputs.tag }}
+
+  upload:
+    needs: [prepare, notes]
+    name: Attach DMG
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Soundboard.dmg
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          gh release upload "$TAG" Soundboard.dmg --clobber -R "$GITHUB_REPOSITORY"
+          # The candidate's notes were just cleared; drop its DMG too.
+          gh release delete-asset release-candidate Soundboard.dmg --yes -R "$GITHUB_REPOSITORY" || true

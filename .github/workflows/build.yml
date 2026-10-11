@@ -1,0 +1,30 @@
+name: Build DMG
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: CFBundleShortVersionString for the app (default candidate-<short sha>)
+        type: string
+        default: ''
+
+jobs:
+  build:
+    name: Build Soundboard.dmg
+    runs-on: macos-26
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        env:
+          VERSION: ${{ inputs.version }}
+          SOUNDBOARD_BUILD: ${{ github.run_number }}
+        run: SOUNDBOARD_VERSION="${VERSION:-candidate-${GITHUB_SHA::7}}" ./build.sh --dmg
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Soundboard.dmg
+          path: build/Soundboard.dmg
+          if-no-files-found: error
+          retention-days: 7

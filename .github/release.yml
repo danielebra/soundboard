@@ -1,0 +1,24 @@
+# Sections for generated release notes, matched on the first PR label that appears here.
+changelog:
+  categories:
+    - title: 🎉 New Features
+      labels:
+        - new feature
+    - title: ✨ Enhancements
+      labels:
+        - enhancement
+    - title: 🛠 Breaking Changes
+      labels:
+        - breaking change
+    - title: 🐛 Bug fixes
+      labels:
+        - bug
+    - title: ⚡️ Optimisations
+      labels:
+        - optimisation
+    - title: 📝 Documentation
+      labels:
+        - documentation
+    - title: Other Changes
+      labels:
+        - '*'

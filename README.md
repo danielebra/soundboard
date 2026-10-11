@@ -33,10 +33,15 @@ and in your headphones.
    ```bash
    brew install blackhole-2ch
    ```
-2. **Build and install the app:**
+2. **Install the app.** Either build it:
    ```bash
    ./build.sh --install
    ```
+   or download `Soundboard.dmg` from the repository's
+   [Releases](https://github.com/danielebra/soundboard/releases) and drag Soundboard into
+   Applications. The app isn't notarized (it's signed ad hoc, which needs no Apple account),
+   so the first launch is blocked: open **System Settings → Privacy & Security** and click
+   **Open Anyway**, or run `xattr -dr com.apple.quarantine /Applications/Soundboard.app`.
 3. **Quit the Elgato Stream Deck app and Voicemod.** Elgato's app locks the device;
    Soundboard waits and takes over as soon as it's closed. Uninstall them if you like.
 4. **Open Soundboard** from /Applications. A grid icon appears in the menu bar. Allow
@@ -302,3 +307,14 @@ SOUNDBOARD_DEBUG=1 .build/release/Soundboard   # log raw key reports
 | `Palette.swift` | On-screen palette and its hot corner, for use without a Stream Deck |
 | `UI/SyncTab.swift`, `Sync.swift` | Sync tab: sounds and keys in your own Git repository (run by the helper) |
 | `Fetcher.swift`, `SoundboardFetch/` | Download and sync helper (the only networked part) |
+
+### Releases
+
+- **Every merge to `master`** builds the DMG and refreshes the **Release Candidate**
+  pre-release: notes for everything merged since the last release, and its `Soundboard.dmg`.
+- **To release**, run *Actions → Release → Run workflow* with a version such as `1.2.0`. It
+  builds `master`, tags it `v1.2.0`, publishes the release with notes since the previous one
+  and the DMG, and clears the candidate.
+- Notes come from [simple-release-notes](https://github.com/danielebra/simple-release-notes)
+  and are grouped by PR label (`.github/release.yml`).
+- `./build.sh --dmg` builds the same DMG locally (`build/Soundboard.dmg`).
