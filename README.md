@@ -33,10 +33,12 @@ and in your headphones.
    ```bash
    brew install blackhole-2ch
    ```
-2. **Build and install the app:**
+2. **Install the app.** Either build it:
    ```bash
-   ./build.sh --install
+   make install
    ```
+   or download `Soundboard.dmg` from [Releases](https://github.com/danielebra/soundboard/releases).
+   It isn't notarized, so allow it the first time in **System Settings → Privacy & Security**.
 3. **Quit the Elgato Stream Deck app and Voicemod.** Elgato's app locks the device;
    Soundboard waits and takes over as soon as it's closed. Uninstall them if you like.
 4. **Open Soundboard** from /Applications. A grid icon appears in the menu bar. Allow
@@ -302,3 +304,8 @@ SOUNDBOARD_DEBUG=1 .build/release/Soundboard   # log raw key reports
 | `Palette.swift` | On-screen palette and its hot corner, for use without a Stream Deck |
 | `UI/SyncTab.swift`, `Sync.swift` | Sync tab: sounds and keys in your own Git repository (run by the helper) |
 | `Fetcher.swift`, `SoundboardFetch/` | Download and sync helper (the only networked part) |
+
+### Releases
+
+Run *Actions → Manual Release* with a version such as `1.2.0`. `make dmg` builds the same
+DMG locally.

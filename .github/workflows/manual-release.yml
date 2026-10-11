@@ -1,0 +1,54 @@
+name: Manual Release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version, e.g. 1.2.0
+        type: string
+        required: true
+
+jobs:
+  check:
+    name: Check
+    permissions:
+      contents: read
+    uses: ./.github/workflows/reusable-check-version.yml
+    with:
+      version: ${{ inputs.version }}
+
+  build:
+    name: Build
+    needs: check
+    permissions:
+      contents: read
+    uses: ./.github/workflows/reusable-build-dmg.yml
+    with:
+      version: ${{ inputs.version }}
+
+  tag:
+    name: Tag
+    needs: build
+    permissions:
+      contents: write
+    uses: ./.github/workflows/reusable-tag.yml
+    with:
+      version: ${{ inputs.version }}
+
+  notes:
+    name: Release Notes
+    needs: tag
+    permissions:
+      id-token: write
+      contents: write
+    uses: danielebra/simple-release-notes/.github/workflows/reusable-create-release-notes.yml@v0.3
+    with:
+      tag: ${{ needs.tag.outputs.tag }}
+
+  attach:
+    name: Attach
+    needs: [tag, notes]
+    permissions:
+      contents: write
+    uses: ./.github/workflows/reusable-attach-dmg.yml
+    with:
+      tag: ${{ needs.tag.outputs.tag }}

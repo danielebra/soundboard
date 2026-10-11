@@ -1,5 +1,6 @@
 #!/bin/bash
 # Builds Soundboard.app into ./build. Pass --install to copy it to /Applications.
+# SOUNDBOARD_VERSION / SOUNDBOARD_BUILD override the bundle version.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -16,6 +17,15 @@ HELPER="$APP/Contents/Helpers/SoundboardFetch.app"
 mkdir -p "$HELPER/Contents/MacOS"
 cp .build/release/SoundboardFetch "$HELPER/Contents/MacOS/SoundboardFetch"
 cp Resources/FetchInfo.plist "$HELPER/Contents/Info.plist"
+
+for plist in "$APP/Contents/Info.plist" "$HELPER/Contents/Info.plist"; do
+    if [[ -n "${SOUNDBOARD_VERSION:-}" ]]; then
+        plutil -replace CFBundleShortVersionString -string "$SOUNDBOARD_VERSION" "$plist"
+    fi
+    if [[ -n "${SOUNDBOARD_BUILD:-}" ]]; then
+        plutil -replace CFBundleVersion -string "$SOUNDBOARD_BUILD" "$plist"
+    fi
+done
 
 # Ad-hoc signatures: nothing leaves your machine, no Apple account needed.
 codesign --force --sign - --options runtime "$HELPER"

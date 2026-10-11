@@ -1,0 +1,14 @@
+name: Push Trunk
+on:
+  push:
+    branches: [master]
+
+jobs:
+  update-candidate:
+    name: Update Release Candidate Notes
+    permissions:
+      id-token: write
+      contents: write
+    uses: danielebra/simple-release-notes/.github/workflows/reusable-update-release-candidate-notes.yml@v0.3
+    with:
+      branch-with-candidate-code: master

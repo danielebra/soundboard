@@ -13,8 +13,9 @@ network goes in the separate `SoundboardFetch` helper. Don't add packages.
 
 ```bash
 swift build -c release                 # both products
-./build.sh                             # → build/Soundboard.app (helper embedded, ad-hoc signed)
-./build.sh --install                   # → /Applications
+make app                               # → build/Soundboard.app (helper embedded, ad-hoc signed)
+make install                           # → /Applications
+make dmg VERSION=1.2.0                 # → build/Soundboard.dmg
 open build/Soundboard.app --args --settings            # open the window (Sounds & Keys)
 open build/Soundboard.app --args --audio               # … on the Audio tab
 open build/Soundboard.app --args --app-settings        # … on the Settings tab
@@ -35,6 +36,9 @@ SOUNDBOARD_DEBUG=1 …                   # log raw Stream Deck HID reports
   harnesses and helper runs (see Testing).
 - After `pkill -x Soundboard`, wait ~2s before `open`, or `open` just reactivates the
   dying instance and the `--args` are ignored.
+
+- **CI:** `push-trunk.yml` and `manual-release.yml` only chain `reusable-*` workflows, which run
+  `make` targets. Keep logic in the Makefile.
 
 ## Runtime layout
 

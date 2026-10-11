@@ -1,0 +1,24 @@
+name: Tag
+on:
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        required: true
+    outputs:
+      tag:
+        value: ${{ jobs.tag.outputs.tag }}
+
+jobs:
+  tag:
+    name: make tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: v${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - env:
+          VERSION: ${{ inputs.version }}
+        run: make tag VERSION="$VERSION"

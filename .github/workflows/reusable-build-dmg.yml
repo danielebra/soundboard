@@ -1,0 +1,26 @@
+name: Build DMG
+on:
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        required: true
+
+jobs:
+  build:
+    name: make dmg
+    runs-on: macos-26
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - env:
+          VERSION: ${{ inputs.version }}
+          BUILD: ${{ github.run_number }}
+        run: make dmg VERSION="$VERSION" BUILD="$BUILD"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Soundboard.dmg
+          path: build/Soundboard.dmg
+          if-no-files-found: error
+          retention-days: 7
