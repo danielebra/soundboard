@@ -108,6 +108,10 @@ fans out. Click a key to play it. The palette never takes focus away from your m
 and folds away when you move on. You can change the corner, or turn it off, in the
 Settings tab.
 
+Or use the keyboard, from any app: **⌃⌥1** to **⌃⌥0** (number row or keypad) play keys 1 to 10 of the current
+page, **⌃⌥[** and **⌃⌥]** turn the page, **⌃⌥.** stops all sounds and **⌃⌥P** shows the
+palette. You can pick other modifier keys, or turn the shortcuts off, in the Settings tab.
+
 ### Sync between your Macs
 
 1. Create an empty **private** repository (on GitHub, GitLab or your own server).

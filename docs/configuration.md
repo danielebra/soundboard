@@ -22,6 +22,8 @@ Macs. `local.json` holds this Mac's audio settings, which don't sync:
   "brightness": 70,
   "hotCorner": "bottomLeft",             // opens the on-screen palette: topLeft, topRight,
                                          // bottomLeft, bottomRight or off
+  "shortcuts": "controlOption",          // modifiers for the keyboard shortcuts: controlOption,
+                                         // controlOptionCommand, hyper (⌃⌥⇧⌘) or off
   "syncRemote": null                     // Git repository to sync with (Sync tab)
 }
 

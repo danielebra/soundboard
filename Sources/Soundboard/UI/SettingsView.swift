@@ -539,7 +539,13 @@ private struct PageBar: View {
                 .disabled(model.config.pages.count <= 1)
         }
         .labelStyle(.iconOnly)
-        .help("The touch buttons under the Neo's screen switch pages. Drop a key on an arrow to move it there.")
+        .help(pageHelp)
+    }
+
+    private var pageHelp: String {
+        let m = model.config.shortcuts.symbols
+        let shortcuts = model.config.shortcuts == .off ? "" : " (or \(m)[ and \(m)])"
+        return "The touch buttons under the Neo's screen\(shortcuts) switch pages. Drop a key on an arrow to move it there."
     }
 
     private func moveDropped(_ providers: [NSItemProvider], by delta: Int) -> Bool {
@@ -597,6 +603,16 @@ private struct KeyCell: View {
                         .background(Circle().fill(.black.opacity(0.6))).foregroundStyle(.white)
                         .padding(4)
                         .help("Overlay: plays on top of other sounds")
+                }
+            }
+            .overlay(alignment: .topTrailing) {
+                if button != nil, model.config.shortcuts != .off, index < 10 {
+                    Text(model.config.shortcuts.symbols + ShortcutCommand.key(index).keyName)
+                        .font(.system(size: 10, weight: .medium)).monospacedDigit()
+                        .padding(.horizontal, 5).padding(.vertical, 2)
+                        .background(Capsule().fill(.black.opacity(0.6))).foregroundStyle(.white)
+                        .padding(4)
+                        .help("Keyboard shortcut, on the page the Stream Deck shows (Settings tab)")
                 }
             }
             .overlay(RoundedRectangle(cornerRadius: 12)

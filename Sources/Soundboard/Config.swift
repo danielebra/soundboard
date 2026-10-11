@@ -79,6 +79,22 @@ enum HotCorner: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+/// Modifier keys held with the global keyboard shortcuts (see `Hotkeys`).
+enum ShortcutModifiers: String, Codable, CaseIterable, Identifiable {
+    case off, controlOption, controlOptionCommand, hyper
+
+    var id: String { rawValue }
+    var symbols: String {
+        switch self {
+        case .off: ""
+        case .controlOption: "⌃⌥"
+        case .controlOptionCommand: "⌃⌥⌘"
+        case .hyper: "⌃⌥⇧⌘"
+        }
+    }
+    var title: String { self == .off ? "Off" : symbols }
+}
+
 /// How a key looks, resolved through the library.
 struct KeyFace {
     var label: String?
@@ -114,6 +130,8 @@ struct Config: Codable, Equatable {
     var brightness = 70
     /// Resting the pointer here opens a palette of the pad's keys, for use without a Stream Deck.
     var hotCorner: HotCorner = .bottomLeft
+    /// Modifiers for the global shortcuts: with them, 1…0 play the current page's keys.
+    var shortcuts: ShortcutModifiers = .controlOption
     /// Git repository the sounds and keys sync with (Sync tab). `nil` = not syncing.
     var syncRemote: String?
     /// Every sound you've added, whether or not it's on a key.
@@ -141,6 +159,7 @@ struct Config: Codable, Equatable {
         stopOthers = try c.decodeIfPresent(Bool.self, forKey: .stopOthers) ?? d.stopOthers
         brightness = try c.decodeIfPresent(Int.self, forKey: .brightness) ?? d.brightness
         hotCorner = (try? c.decodeIfPresent(HotCorner.self, forKey: .hotCorner)) ?? d.hotCorner
+        shortcuts = (try? c.decodeIfPresent(ShortcutModifiers.self, forKey: .shortcuts)) ?? d.shortcuts
         syncRemote = try c.decodeIfPresent(String.self, forKey: .syncRemote)
         library = try c.decodeIfPresent([SoundEntry].self, forKey: .library) ?? d.library
         pages = try c.decodeIfPresent([[ButtonConfig?]].self, forKey: .pages) ?? d.pages

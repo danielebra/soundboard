@@ -33,7 +33,7 @@ SOUNDBOARD_DEBUG=1 …                   # log raw Stream Deck HID reports
   would fight the C callbacks. Regex literals (`/…/`) don't compile in this mode; use
   `NSRegularExpression` or manual parsing.
 - macOS 15+ (uses `Synchronization.Atomic`).
-- `Tests/SoundboardTests` has unit tests for `Config` and `ConfigMerge` (SwiftPM `@testable import`s
+- `Tests/SoundboardTests` has unit tests for `Config`, `ConfigMerge` and the `Hotkeys` mapping (SwiftPM `@testable import`s
   the executable targets). Audio, HID and UI are verified with snapshots, small `swiftc`
   harnesses and helper runs (see Testing).
 - After `pkill -x Soundboard`, wait ~2s before `open`, or `open` just reactivates the
@@ -69,6 +69,7 @@ sandbox container: `Paths.home` uses `getpwuid`, and the entitlements grant a
 | `AudioDevices.swift` | CoreAudio device enumeration (timeout-guarded), change listener with snapshot dedupe |
 | `AudioListeners.swift` | Whether another app reads input from the output device (CoreAudio process objects) |
 | `StreamDeck.swift` | IOHIDManager + Stream Deck gen-2 protocol; retries when another app holds the device |
+| `Hotkeys.swift` | Global keyboard shortcuts (Carbon hot keys): number row or keypad plays keys 1–10, `[` `]` pages, `.` stop, `P` palette |
 | `Palette.swift` | On-screen palette for use without a deck: `CornerTrigger` (hot corner) + non-activating panel |
 | `KeyRenderer.swift` | CoreGraphics key/screen images, JPEG (rotated 180°) for the device |
 | `AssetCache.swift` | Decoded sounds (48 kHz stereo) and icons, cached by file mtime; renders `KeyFace` |
@@ -203,6 +204,13 @@ page back/forward), and a 248×58 info screen.
   `open … --args --palette --snapshot 2` shows and snapshots it (rendered from its layers).
   Synthetic mouse events from the agent shell are dropped (no Accessibility), so the hot corner
   itself has to be tried by hand.
+- **Keyboard shortcuts** are Carbon `RegisterEventHotKey`, which needs no Accessibility permission
+  (an `NSEvent` key monitor would) and works from the sandbox. They're positional like the deck
+  (modifier + 1…0 = key 1…10 of the current page) so there's nothing to set up per key; only the
+  modifiers are a setting (`shortcuts`, per Mac). Pressed and released events both arrive, so Bleep
+  works while held. Registering succeeds even when another process holds the same combination
+  (tested with two processes), so clashes can't be detected; the UI says to pick other modifiers.
+  macOS 15 rejects Option-only and Option-Shift-only combinations, so every choice includes Control.
 - The vendor's own app opens the device exclusively (`0xe00002c5`), so `StreamDeckManager` retries every 2 s.
 - Other gen-2 models are in the table but untested.
 

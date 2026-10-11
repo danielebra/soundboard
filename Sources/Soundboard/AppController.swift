@@ -37,6 +37,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
     private var mainWindow: MainWindow!
     private lazy var palette = Palette(app: self)
     private let corner = CornerTrigger()
+    private let hotkeys = Hotkeys()
 
     /// Key grid of the connected deck (Neo layout when none is plugged in).
     var keyLayout: (keys: Int, columns: Int) {
@@ -88,6 +89,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
             self.palette.show(on: screen, corner: self.config.hotCorner)
         }
         palette.onVisibilityChange = { [weak self] visible in self?.corner.isSuspended = visible }
+        hotkeys.onCommand = { [weak self] command, pressed in self?.shortcut(command, pressed: pressed) }
 
         if CommandLine.arguments.contains("--settings") { showSettings() }
         if CommandLine.arguments.contains("--audio") { mainWindow.show(.audio) }
@@ -200,6 +202,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
         }
         decks.deck?.setBrightness(config.brightness)
         corner.corner = config.hotCorner
+        hotkeys.modifiers = config.shortcuts
         redrawDeck()
         sync.configure(remote: config.syncRemote)
         onConfigChange?(config)
@@ -294,6 +297,17 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
                   case let .success(sound) = assets.sound(entry.file) else { return }
             router.play(key: key, sound: sound, volume: entry.volume ?? 1, mode: entry.mode ?? .toggle,
                         stopOthers: config.stopOthers)
+        }
+    }
+
+    /// A global keyboard shortcut went down or up.
+    private func shortcut(_ command: ShortcutCommand, pressed: Bool) {
+        switch command {
+        case let .key(index): press(index: index, pressed: pressed)
+        case .previousPage: if pressed { turnPage(by: -1) }
+        case .nextPage: if pressed { turnPage(by: 1) }
+        case .stopAll: if pressed { router.stopAll() }
+        case .palette: if pressed { palette.toggle(corner: config.hotCorner) }
         }
     }
 
