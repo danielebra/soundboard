@@ -13,6 +13,7 @@ network goes in the separate `SoundboardFetch` helper. Don't add packages.
 
 ```bash
 swift build -c release                 # both products
+make test                              # unit tests (swift test)
 make app                               # → build/Soundboard.app (helper embedded, ad-hoc signed)
 make install                           # → /Applications
 make dmg VERSION=1.2.0                 # → build/Soundboard.dmg
@@ -32,12 +33,13 @@ SOUNDBOARD_DEBUG=1 …                   # log raw Stream Deck HID reports
   would fight the C callbacks. Regex literals (`/…/`) don't compile in this mode; use
   `NSRegularExpression` or manual parsing.
 - macOS 15+ (uses `Synchronization.Atomic`).
-- There's no test target. Verification has been done with snapshots, small `swiftc`
+- `Tests/SoundboardTests` has unit tests for `Config` and `ConfigMerge` (SwiftPM `@testable import`s
+  the executable targets). Audio, HID and UI are verified with snapshots, small `swiftc`
   harnesses and helper runs (see Testing).
 - After `pkill -x Soundboard`, wait ~2s before `open`, or `open` just reactivates the
   dying instance and the `--args` are ignored.
 
-- **CI:** `push-trunk.yml` and `manual-release.yml` only chain `reusable-*` workflows, which run
+- **CI:** `pull-request.yml`, `push-trunk.yml` and `manual-release.yml` only chain `reusable-*` workflows, which run
   `make` targets. Keep logic in the Makefile.
 
 ## Runtime layout
