@@ -14,12 +14,12 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - env:
           VERSION: ${{ inputs.version }}
           BUILD: ${{ github.run_number }}
         run: make dmg VERSION="$VERSION" BUILD="$BUILD"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: Soundboard.dmg
           path: build/Soundboard.dmg

@@ -19,7 +19,7 @@ jobs:
     outputs:
       tag: v${{ inputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - env:
           VERSION: ${{ inputs.version }}
         run: make tag VERSION="$VERSION"
