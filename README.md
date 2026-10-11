@@ -8,9 +8,9 @@ Play the keys from a **Stream Deck**, or from an **on-screen palette** that pops
 corner of your screen.
 
 ```
- Stream Deck ──▶ Soundboard ──▶ BlackHole ──▶ your meeting or stream
- or palette        ▲      │
-       your mic ───┘      └──▶ your headphones
+ your keys ──▶ Soundboard ──▶ BlackHole ──▶ your meeting or stream
+                 ▲      │
+     your mic ───┘      └──▶ your headphones
 ```
 
 ## Features
