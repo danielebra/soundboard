@@ -223,7 +223,7 @@ struct AudioTab: View {
         } header: {
             Text("Monitor")
         } footer: {
-            Text("Where you hear the sounds and input tests. Use headphones so the input doesn't pick the sounds up a second time.")
+            Text("Where you hear the sounds and input tests. You hear the output's mix without your own voice: sounds at the sounds volume, so they're as loud against each other as they are for your listeners. This volume only sets how loud it is for you. Use headphones so the input doesn't pick the sounds up a second time.")
                 .foregroundStyle(.secondary)
         }
     }

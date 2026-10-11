@@ -241,6 +241,7 @@ final class MainWindow: NSObject, NSWindowDelegate {
         let layout = app.keyLayout
         let settings = SettingsModel(config: app.config, keyCount: layout.keys, columns: layout.columns,
                                      assets: app.assets) { [weak app] config in app?.save(config) }
+        settings.router = app.router
         let model = MainModel(settings: settings, router: app.router)
         model.syncNow = { [weak app] in app?.syncNow() }
         settings.openClipEditor = { [weak self] target, file in self?.showEditor(target: target, file: file) }

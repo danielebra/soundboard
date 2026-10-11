@@ -34,6 +34,8 @@ final class SettingsModel: ObservableObject {
     private let commit: (Config) -> Void
     private var pending: DispatchWorkItem?
     private var previewPlayer: AVAudioPlayer?
+    private var previewing = false
+    var router: AudioRouter?
     var openClipEditor: ((ClipTarget, URL?) -> Void)?
 
     init(config: Config, keyCount: Int, columns: Int, assets: AssetCache, commit: @escaping (Config) -> Void) {
@@ -319,14 +321,24 @@ final class SettingsModel: ObservableObject {
         return panel.runModal() == .OK ? panel.urls : []
     }
 
+    /// Plays a library sound on the monitor, the same way a key press does, so the volume matches.
+    /// Without a monitor it plays on the system output at the same volume.
     func preview(_ entry: SoundEntry) {
-        if previewPlayer?.isPlaying == true {
+        if previewing || previewPlayer?.isPlaying == true {
+            router?.stopSoundPreview()
             previewPlayer?.stop()
             previewPlayer = nil
+            previewing = false
+            return
+        }
+        let volume = entry.volume ?? 1
+        if let router, case let .success(sound) = assets.sound(entry.file),
+           router.previewSound(sound, volume: volume, done: { [weak self] in self?.previewing = false }) {
+            previewing = true
             return
         }
         previewPlayer = try? AVAudioPlayer(contentsOf: Paths.resolve(entry.file, in: Paths.sounds))
-        previewPlayer?.volume = entry.volume ?? 1
+        previewPlayer?.volume = volume * config.soundVolume * config.monitorVolume
         previewPlayer?.play()
     }
 }
