@@ -43,4 +43,16 @@ final class ConfigTests: XCTestCase {
         XCTAssertTrue(localKeys.contains("micVolume"))
         XCTAssertEqual(try Config.decode(shared: shared, local: local), config)
     }
+
+    func testShortcutsAreLocalAndFallBackToTheDefault() throws {
+        var config = Config()
+        config.shortcuts = .hyper
+        let (shared, local) = try config.encodedFiles()
+        XCTAssertFalse(String(decoding: shared, as: UTF8.self).contains("shortcuts"))
+        XCTAssertEqual(try Config.decode(shared: shared, local: local).shortcuts, .hyper)
+
+        let unknown = try Config.decode(shared: shared, local: Data(#"{ "shortcuts": "meta" }"#.utf8))
+        XCTAssertEqual(unknown.shortcuts, .controlOption)
+        XCTAssertEqual(try Config.decode(shared: shared, local: Data("{}".utf8)).shortcuts, .controlOption)
+    }
 }

@@ -33,7 +33,7 @@ SOUNDBOARD_DEBUG=1 …                   # log raw Stream Deck HID reports
   would fight the C callbacks. Regex literals (`/…/`) don't compile in this mode; use
   `NSRegularExpression` or manual parsing.
 - macOS 15+ (uses `Synchronization.Atomic`).
-- `Tests/SoundboardTests` has unit tests for `Config` and `ConfigMerge` (SwiftPM `@testable import`s
+- `Tests/SoundboardTests` has unit tests for `Config`, `ConfigMerge` and the `Hotkeys` mapping (SwiftPM `@testable import`s
   the executable targets). Audio, HID and UI are verified with snapshots, small `swiftc`
   harnesses and helper runs (see Testing).
 - After `pkill -x Soundboard`, wait ~2s before `open`, or `open` just reactivates the

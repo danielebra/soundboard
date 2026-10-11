@@ -23,7 +23,7 @@ enum ShortcutCommand: Hashable {
 
     /// Physical keys (US positions, so other layouts use the same keys). Digits and the period
     /// work on the numeric keypad too.
-    fileprivate var keyCodes: [Int] {
+    var keyCodes: [Int] {
         switch self {
         case let .key(index):
             [[kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4, kVK_ANSI_5,
@@ -38,12 +38,12 @@ enum ShortcutCommand: Hashable {
     }
 
     /// Every registered key combination; a hot key's id is its index here.
-    fileprivate static let bindings: [(command: ShortcutCommand, keyCode: Int)] =
+    static let bindings: [(command: ShortcutCommand, keyCode: Int)] =
         all.flatMap { command in command.keyCodes.map { (command, $0) } }
 }
 
 extension ShortcutModifiers {
-    fileprivate var carbonFlags: UInt32 {
+    var carbonFlags: UInt32 {
         switch self {
         case .off: 0
         case .controlOption: UInt32(controlKey | optionKey)
@@ -108,7 +108,8 @@ final class Hotkeys {
                             Unmanaged.passUnretained(self).toOpaque(), &handler)
     }
 
-    private func handle(_ id: UInt32, pressed: Bool) {
+    /// Hot key `id` (an index into `ShortcutCommand.bindings`) went down or up.
+    func handle(_ id: UInt32, pressed: Bool) {
         guard ShortcutCommand.bindings.indices.contains(Int(id)) else { return }
         let command = ShortcutCommand.bindings[Int(id)].command
         if debug { NSLog("Soundboard: shortcut %@ %@", command.keyName, pressed ? "down" : "up") }
