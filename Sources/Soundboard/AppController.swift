@@ -30,6 +30,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
     private let decks = StreamDeckManager()
     private var statusItem: NSStatusItem!
     private let statusMenu = NSMenu()
+    private var appearanceObserver: NSKeyValueObservation?
     private var rebuildWork: DispatchWorkItem?
     private var reloadWork: DispatchWorkItem?
     private var watchers: [DispatchSourceFileSystemObject] = []
@@ -53,6 +54,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = NSImage(systemSymbolName: "square.grid.2x2.fill", accessibilityDescription: "Soundboard")
         statusMenu.delegate = self
+        appearanceObserver = statusItem.button?.observe(\.effectiveAppearance) { [weak self] _, _ in self?.updateStatusIcon() }
         statusItem.button?.target = self
         statusItem.button?.action = #selector(statusItemClicked)
         statusItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
@@ -482,26 +484,32 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
         return lines
     }
 
-    /// The menu bar icon: always the app's grid, with a dot in the corner while something is wrong.
-    /// Still a template image, so the dot is a cutout ring around a filled circle, not a colour.
+    /// The menu bar icon: always the app's grid, with a yellow dot in the corner while something is
+    /// wrong. The dot needs colour, so with a problem the icon isn't a template and the grid is
+    /// tinted by hand to match the menu bar.
     private func updateStatusIcon() {
-        let base = NSImage(systemSymbolName: "square.grid.2x2.fill", accessibilityDescription: "Soundboard")
-        guard !problems.isEmpty, let base else {
-            statusItem.button?.image = base
+        let symbol = NSImage(systemSymbolName: "square.grid.2x2.fill", accessibilityDescription: "Soundboard")
+        guard !problems.isEmpty, let symbol, let button = statusItem.button else {
+            statusItem.button?.image = symbol
             return
         }
+        let dark = button.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let tint = dark ? NSColor.white : NSColor.black
+        let base = symbol.withSymbolConfiguration(.init(paletteColors: [tint])) ?? symbol
         let image = NSImage(size: base.size, flipped: false) { rect in
             base.draw(in: rect)
             let dot = NSRect(x: rect.maxX - 8, y: rect.minY - 1, width: 8, height: 8)
-            NSGraphicsContext.current?.cgContext.setBlendMode(.clear)
+            let context = NSGraphicsContext.current?.cgContext
+            context?.setBlendMode(.clear)
             NSBezierPath(ovalIn: dot.insetBy(dx: -1.5, dy: -1.5)).fill()
-            NSGraphicsContext.current?.cgContext.setBlendMode(.normal)
+            context?.setBlendMode(.normal)
+            NSColor.systemYellow.setFill()
             NSBezierPath(ovalIn: dot).fill()
             return true
         }
-        image.isTemplate = true
+        image.isTemplate = false
         image.accessibilityDescription = "Soundboard, needs attention"
-        statusItem.button?.image = image
+        button.image = image
     }
 
     /// A short menu: the window is where everything happens. Shortcuts shown are the real global
