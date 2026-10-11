@@ -47,8 +47,10 @@ struct GitSync {
 
         // A Mac with only the starter sounds takes the repository's copy as it is, rather than
         // committing the starters as a second root that then has to be merged.
-        let adopted = (try? git.run(["rev-parse", "--verify", "-q", "HEAD"])) == nil
-            ? try adoptRepository(git) : false
+        var adopted = false
+        if (try? git.run(["rev-parse", "--verify", "-q", "HEAD"])) == nil {
+            adopted = try adoptRepository(git)
+        }
         if !adopted {
             try git.run(["add", "-A"])
             if (try? git.run(["diff", "--cached", "--quiet"])) == nil {
@@ -61,10 +63,7 @@ struct GitSync {
         // Someone else may push between our fetch and push; then merge their change and retry.
         for attempt in 1...3 {
             progress("Connecting…")
-            let head = try git.network(["ls-remote", "--symref", "origin", "HEAD"])
-            // "ref: refs/heads/main<TAB>HEAD", or nothing for an empty repository.
-            let branch = head.split(separator: "\n").first { $0.hasPrefix("ref: refs/heads/") }
-                .map { String($0.dropFirst("ref: refs/heads/".count).prefix { $0 != "\t" }) }
+            let branch = try remoteBranch(git)
             if newRemote, attempt == 1 {
                 // Check that we may push before merging anything in (a dry run creates nothing).
                 try git.network(["push", "-q", "--dry-run", "origin", "HEAD:refs/heads/soundboard-access-check"])
@@ -93,15 +92,21 @@ struct GitSync {
 
     private static let emptyTree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
+    /// The repository's default branch, or nil for an empty repository.
+    private func remoteBranch(_ git: Git) throws -> String? {
+        let head = try git.network(["ls-remote", "--symref", "origin", "HEAD"])
+        // "ref: refs/heads/main<TAB>HEAD"
+        return head.split(separator: "\n").first { $0.hasPrefix("ref: refs/heads/") }
+            .map { String($0.dropFirst("ref: refs/heads/".count).prefix { $0 != "\t" }) }
+    }
+
     /// For a folder with no commits yet: if the repository already holds a Soundboard and this
-    /// folder has nothing of its own (just the starter config), checks out the repository's copy
-    /// and returns true. Otherwise leaves everything for the normal commit and merge.
+    /// folder has only the starter config, checks out the repository's copy and returns true.
+    /// Otherwise changes nothing, and the normal commit and merge follow.
     private func adoptRepository(_ git: Git) throws -> Bool {
         guard Self.isUntouchedStarter(root) else { return false }
-        let head = try git.network(["ls-remote", "--symref", "origin", "HEAD"])
-        guard let branch = head.split(separator: "\n").first(where: { $0.hasPrefix("ref: refs/heads/") })
-            .map({ String($0.dropFirst("ref: refs/heads/".count).prefix { $0 != "\t" }) }) else { return false }
         progress("Connecting…")
+        guard let branch = try remoteBranch(git) else { return false }
         progress("Getting changes…")
         try git.network(["fetch", "-q", "origin", branch])
         guard (try? git.run(["cat-file", "-e", "FETCH_HEAD:config.json"])) != nil else { return false }
@@ -111,14 +116,14 @@ struct GitSync {
         return true
     }
 
-    /// True when the folder holds no sounds or icons of its own and its library is only the
-    /// starter sounds that ship with Soundboard (or it has no config at all).
+    /// True when the folder has no sounds or icons of its own and its library is only the starter
+    /// sounds (or there is no config yet).
     static func isUntouchedStarter(_ root: URL) -> Bool {
-        let fm = FileManager.default
-        for folder in ["sounds", "icons"] {
-            let files = (try? fm.contentsOfDirectory(atPath: root.appending(path: folder).path)) ?? []
-            if files.contains(where: { !$0.hasPrefix(".") && $0 != "Deleted" }) { return false }
+        let hasOwnFiles = ["sounds", "icons"].contains { folder in
+            let names = (try? FileManager.default.contentsOfDirectory(atPath: root.appending(path: folder).path)) ?? []
+            return names.contains { !$0.hasPrefix(".") && $0 != "Deleted" }
         }
+        if hasOwnFiles { return false }
         guard let data = try? Data(contentsOf: root.appending(path: "config.json")) else { return true }
         guard let config = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let library = config["library"] as? [[String: Any]] else { return false }
