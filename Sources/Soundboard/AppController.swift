@@ -473,7 +473,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
             info("✗ No Stream Deck connected")
         }
         if let device = status.connecting {
-            info("⏳ Opening \(device)… (if this stays, the audio driver is stuck — restart your Mac)")
+            info("⏳ Opening \(device)… (if this stays, the audio driver is stuck; restart your Mac)")
         } else {
             info(status.output.map { "✓ Output: \($0)\(status.outputLive ? "" : " (standby until an app listens)")" }
                 ?? "✗ \(status.outputProblem ?? "No output")")

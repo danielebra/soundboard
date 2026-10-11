@@ -299,7 +299,7 @@ private func openMic(device: AudioDeviceID, taps: TapState, timeout: TimeInterva
         let missed = result == nil
         if missed { abandoned = true }
         lock.unlock()
-        if missed { throw AudioError.message("didn't respond — unplug and replug it") }
+        if missed { throw AudioError.message("didn't respond. Unplug and replug it") }
     }
     lock.lock()
     defer { lock.unlock() }
@@ -360,11 +360,11 @@ final class AudioRouter {
     static let chunkSeconds = 0.05
 
     private(set) var status = Status()
-    /// (sound key, isPlaying) — always on the main thread.
+    /// (sound key, isPlaying), always on the main thread.
     var onPlaybackChange: ((String, Bool) -> Void)?
     /// An engine stopped because a device changed underneath it.
     var onNeedsRebuild: (() -> Void)?
-    /// Devices finished opening (or failed) — `status` is up to date.
+    /// Devices finished opening (or failed); `status` is up to date.
     var onStatusChange: (() -> Void)?
 
     private let voiceCount = 12
@@ -488,7 +488,7 @@ final class AudioRouter {
         updateEngines(stopping: false)
 
         // A device change can stop an engine; rebuild only then. Engines also post this
-        // notification harmlessly right after we move them off the default device —
+        // notification harmlessly right after we move them off the default device:
         // rebuilding on those would restart the mic forever.
         let engines = [built.broadcast?.engine, built.monitor?.engine, built.mic?.engine].compactMap { $0 }
         for engine in engines {
@@ -516,7 +516,7 @@ final class AudioRouter {
                 built.status.micProblem = "Microphone access not granted"
             } else if let device {
                 if device.name.localizedCaseInsensitiveContains(config.outputDevice) {
-                    built.status.micProblem = "Input is the same device as the output — pick a different input"
+                    built.status.micProblem = "Input is the same device as the output. Pick a different input"
                 } else {
                     do {
                         // Started by `updateEngines` once something needs it.
@@ -562,7 +562,7 @@ final class AudioRouter {
                                        voiceCount: Int) -> Built {
         var built = Built(isBroadcastStage: true)
         guard let device = AudioDevices.find(config.outputDevice, output: true) else {
-            built.status.outputProblem = "“\(config.outputDevice)” not found — is BlackHole installed?"
+            built.status.outputProblem = "“\(config.outputDevice)” not found. Is BlackHole installed?"
             return built
         }
         built.outputDevice = device.id

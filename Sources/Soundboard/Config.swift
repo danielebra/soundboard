@@ -42,7 +42,7 @@ struct ButtonConfig: Codable, Equatable {
     var image: String?
     var color: String?
 
-    /// Version 1 only — moved into the library by `Config.upgrade`.
+    /// Version 1 only: moved into the library by `Config.upgrade`.
     var name: String?
     var volume: Float?
     var mode: Mode?
