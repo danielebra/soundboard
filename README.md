@@ -56,20 +56,6 @@ automatically.
 > When Soundboard isn't running, Zoom gets silence from BlackHole. Switch Zoom back to
 > your real mic, or keep Soundboard open.
 
-### Importing your Voicemod sounds
-
-```bash
-python3 tools/import_voicemod.py
-```
-
-This reads the Stream Deck pages that had Voicemod buttons, copies each sound out of
-Voicemod's local cache (converting `.ogg` to `.wav` with `ffmpeg`), keeps your button
-artwork and layout, and writes `config.json`. It doesn't download anything.
-
-Sounds from **Voicemod's own library** are stored scrambled on disk and can't be
-imported. Those keys keep their artwork and show ⚠︎. Save your own copy of the sound
-at the path the script prints.
-
 ## The Soundboard window
 
 Click the menu bar icon (right-click it for the menu). It's one window with five

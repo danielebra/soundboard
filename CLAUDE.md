@@ -81,7 +81,6 @@ sandbox container: `Paths.home` uses `getpwuid`, and the entitlements grant a
 | `SoundboardFetch/main.swift` | Helper: `info`, `preview`, `video`, `page`, `direct`, `sync` modes |
 | `SoundboardFetch/GitSync.swift` | `sync` mode: commit, fetch, merge, push with the Mac's git (`Git` runner) |
 | `SoundboardFetch/ConfigMerge.swift` | config.json three-way merge driver (`--merge-config %O %A %B`) |
-| `tools/import_voicemod.py` | One-off importer from Voicemod cache + Elgato profiles (writes a v1 config) |
 
 ## Data model (config.json v2)
 
@@ -268,8 +267,6 @@ and thumbnail on reset.
 
 - **Ad-hoc signing changes every build**, so macOS privacy (TCC) treats each build as a new
   app. The mic permission prompt can reappear, and the TCC check can block until it's answered.
-- **Voicemod's own library sounds** in its cache are scrambled. User uploads are plain
-  Ogg. Don't try to decrypt Voicemod content.
 - **`screencapture` isn't permitted** from the agent shell; use `--snapshot`. It draws
   the largest visible window via `cacheDisplay`, so AVPlayerView content shows black
   and views need an explicit background.
