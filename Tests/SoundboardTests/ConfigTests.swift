@@ -9,6 +9,17 @@ final class ConfigTests: XCTestCase {
         XCTAssertEqual(config.pages.first?.count, 8)
     }
 
+    func testLabelPositionReachesTheKeyFace() throws {
+        let json = """
+        { "version": 2,
+          "library": [ { "id": "a", "name": "A", "file": "a.wav", "label": "A", "labelPosition": "top" },
+                       { "id": "b", "name": "B", "file": "b.wav", "label": "B" } ],
+          "pages": [[ { "sound": "a" }, { "sound": "b" }, { "action": "stop", "label": "STOP", "labelPosition": "bottom" } ]] }
+        """
+        let config = try JSONDecoder().decode(Config.self, from: Data(json.utf8))
+        XCTAssertEqual(config.pages[0].map { config.face($0).labelPosition }, [.top, nil, .bottom])
+    }
+
     func testUpgradeMovesVersion1SoundsIntoLibrary() throws {
         let v1 = """
         { "version": 1, "pages": [[ { "sound": "airhorn.wav", "label": "Horn" }, null ]] }

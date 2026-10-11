@@ -39,11 +39,15 @@ enum KeyRenderer {
                        blue: CGFloat(value & 0xff) / 255, alpha: 1)
     }
 
-    static func key(size: Int, label: String?, image: CGImage?, background: CGColor,
-                    active: Bool, warning: Bool) -> CGImage {
+    /// Where a label goes when the key doesn't say: at the bottom over an image, else in the middle.
+    static func defaultLabelPosition(hasImage: Bool) -> LabelPosition { hasImage ? .bottom : .middle }
+
+    static func key(size: Int, label: String?, labelPosition: LabelPosition? = nil, image: CGImage?,
+                    background: CGColor, active: Bool, warning: Bool) -> CGImage {
         draw(width: size, height: size) { ctx in
             let s = CGFloat(size)
             let bounds = CGRect(x: 0, y: 0, width: s, height: s)
+            let position = labelPosition ?? defaultLabelPosition(hasImage: image != nil)
             ctx.setFillColor(image == nil ? background : CGColor(gray: 0, alpha: 1))
             ctx.fill(bounds)
 
@@ -53,13 +57,20 @@ enum KeyRenderer {
                 ctx.interpolationQuality = .high
                 ctx.draw(image, in: CGRect(x: (s - w) / 2, y: (s - h) / 2, width: w, height: h))
                 if let label, !label.isEmpty {
+                    // A dark band behind the label keeps it readable over the image.
                     let band = s * 0.3
+                    let y = switch position {
+                    case .top: s - band
+                    case .middle: (s - band) / 2
+                    case .bottom: CGFloat(0)
+                    }
                     ctx.setFillColor(CGColor(gray: 0, alpha: 0.6))
-                    ctx.fill(CGRect(x: 0, y: 0, width: s, height: band))
-                    text(label, in: CGRect(x: 4, y: 0, width: s - 8, height: band), maxSize: s * 0.17, ctx: ctx)
+                    ctx.fill(CGRect(x: 0, y: y, width: s, height: band))
+                    text(label, in: CGRect(x: 4, y: y, width: s - 8, height: band), maxSize: s * 0.17, ctx: ctx)
                 }
             } else if let label, !label.isEmpty {
-                text(label, in: bounds.insetBy(dx: s * 0.08, dy: s * 0.08), maxSize: s * 0.28, ctx: ctx)
+                text(label, in: bounds.insetBy(dx: s * 0.08, dy: s * 0.08), maxSize: s * 0.28,
+                     position: position, ctx: ctx)
             }
 
             if warning {
@@ -217,10 +228,11 @@ enum KeyRenderer {
         return ctx.makeImage()!
     }
 
-    /// Draws text centred in `rect`, shrinking the font until it fits without breaking words.
+    /// Draws text centred in `rect` (or at its top or bottom edge), shrinking the font until it
+    /// fits without breaking words.
     private static func text(_ string: String, in rect: CGRect, maxSize: CGFloat,
                              weight: NSFont.Weight = .bold, color: NSColor = .white,
-                             singleLine: Bool = false, ctx: CGContext) {
+                             singleLine: Bool = false, position: LabelPosition = .middle, ctx: CGContext) {
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .center
         paragraph.lineBreakMode = singleLine ? .byTruncatingTail : .byWordWrapping
@@ -245,7 +257,12 @@ enum KeyRenderer {
         } while size > 8
 
         let height = min(bounds.height, rect.height)
-        let target = CGRect(x: rect.minX, y: rect.midY - height / 2, width: rect.width, height: height)
+        let y = switch position {
+        case .top: rect.maxY - height
+        case .middle: rect.midY - height / 2
+        case .bottom: rect.minY
+        }
+        let target = CGRect(x: rect.minX, y: y, width: rect.width, height: height)
         (string as NSString).draw(with: target, options: singleLine ? [.truncatesLastVisibleLine] : [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
                                   attributes: attributes)
     }

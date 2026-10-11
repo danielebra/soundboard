@@ -52,9 +52,11 @@ Macs. `local.json` holds this Mac's audio settings, which don't sync:
     `ffmpeg -i in.ogg out.wav`.
   - `image` is in `icons/` (png, jpg, webp or gif), cropped to fill the key.
   - `label` is drawn on the key. `name` shows in the library and on the Neo's screen.
+  - `labelPosition` is `"top"`, `"middle"` or `"bottom"`. Without it, the label sits at the
+    bottom of a key with an image and in the middle of one without.
   - `color` is the key's background colour when it has no image.
   - `mode` is `"toggle"` (the default: tap to start, tap again to stop) or `"overlay"`
     (each tap layers another copy, and other sounds never cut it off).
 - **Keys** point at a library sound by `id`, or are `stop` / `censor` keys with their own
-  `label`, `image` and `color`. Taking a sound off a key never deletes it from the library.
+  `label`, `labelPosition`, `image` and `color`. Taking a sound off a key never deletes it from the library.
 - **Audio files dropped into `sounds/`** are added to the library automatically.
