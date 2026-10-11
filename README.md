@@ -1,14 +1,23 @@
 # Soundboard
 
-A private, offline replacement for **Elgato Stream Deck software + Voicemod** on macOS.
-Press a key on your Stream Deck, and the sound plays into Zoom (mixed with your mic)
-and in your headphones.
+A private, offline soundboard and mic mixer for macOS. Press a key and a sound effect
+plays into your meeting or stream, mixed live with your microphone, and in your headphones
+so you hear it too. Play the keys from a Stream Deck or from an on-screen palette.
 
 ```
- Stream Deck ──USB──▶ Soundboard.app ──▶ BlackHole 2ch ──▶ Zoom (as your mic)
-                         ▲      │
-          your mic ──────┘      └──────▶ your headphones (so you hear it too)
+ Stream Deck ─USB─▶ Soundboard.app ──▶ BlackHole 2ch ──▶ Zoom, Meet, Teams, Discord, OBS…
+ or palette            ▲      │                           (as your microphone)
+        your mic ──────┘      └──────▶ your headphones
 ```
+
+- **A sound library** with key caps (label, image, colour), per-sound volume, and
+  toggle or overlay playback.
+- **A Sound Editor** that clips sounds from files, YouTube or soundboard websites, with
+  previews before anything is downloaded.
+- **Noise removal** on your mic (Apple's voice isolation), applied before the sounds are
+  mixed in so it never removes them.
+- **A bleep key** that mutes your mic and plays a censor tone while held.
+- **Sync** between your Macs through a private Git repository you own.
 
 ## Why it's private
 
@@ -20,8 +29,8 @@ and in your headphones.
   [yt-dlp](https://github.com/yt-dlp/yt-dlp) for video sites) and exits. The main app
   hands it the link through a file and never touches the network itself. If you turn on
   [Sync](#sync), the same helper runs `git` against the repository you chose, and nothing else.
-- **No third-party code.** About 4,500 lines of Swift on Apple frameworks only
-  (IOKit, CoreAudio, AVFoundation, AppKit). No analytics, no crash reporter, no updater.
+- **No third-party code.** Swift on Apple frameworks only (IOKit, CoreAudio,
+  AVFoundation, AppKit), so the whole app can be audited from this repository. No analytics, no crash reporter, no updater.
 - **Only touches its own folder.** The sandbox allows writes to
   `~/Library/Application Support/Soundboard` and nothing else.
 - **BlackHole** (the virtual audio cable) is open-source (GPL-3), driver-only, and has
@@ -39,28 +48,33 @@ and in your headphones.
    ```
    or download `Soundboard.dmg` from [Releases](https://github.com/danielebra/soundboard/releases).
    It isn't notarized, so allow it the first time in **System Settings → Privacy & Security**.
-3. **Quit the Elgato Stream Deck app and Voicemod.** Elgato's app locks the device;
-   Soundboard waits and takes over as soon as it's closed. Uninstall them if you like.
-4. **Open Soundboard** from /Applications. A grid icon appears in the menu bar. Allow
-   microphone access when asked.
-5. **In Zoom → Settings → Audio**, set *Microphone* to **BlackHole 2ch**. Also set
-   tick *Original sound for musicians* (leave *High-fidelity music mode* off, and keep
-   *Echo cancellation* on if you don't wear headphones). Otherwise Zoom filters out the
-   sound effects as "noise". Then turn on **Noise removal** in Soundboard's
-   Audio tab: Soundboard cleans up your mic before mixing in the sounds, so you keep
-   noise suppression without it eating the effects.
+3. **Open Soundboard** from /Applications. A grid icon appears in the menu bar. Allow
+   microphone access when asked. If you use a Stream Deck, quit any other app that has
+   it open; Soundboard takes over as soon as the device is free.
+4. **In your meeting or streaming app's audio settings**, set the microphone to
+   **BlackHole 2ch** and turn off the app's own noise suppression, which would otherwise
+   filter out the sound effects as "noise" (see [App settings](#app-settings)). Then turn
+   on **Noise removal** in Soundboard's Audio tab: Soundboard cleans up your mic before
+   mixing in the sounds, so you keep noise suppression without it eating the effects.
 
 Use **Open at Login** in the menu (right-click the menu bar icon) to have it start
 automatically.
 
-> When Soundboard isn't running, Zoom gets silence from BlackHole. Switch Zoom back to
-> your real mic, or keep Soundboard open.
+> When Soundboard isn't running, apps get silence from BlackHole. Switch back to your
+> real mic, or keep Soundboard open.
+
+### App settings
+
+- **Zoom:** Settings → Audio, tick *Original sound for musicians*. Leave *High-fidelity
+  music mode* off, and keep *Echo cancellation* on if you don't wear headphones.
+- **Others:** look for a noise suppression or "background noise" setting and turn it off
+  or to its lowest level.
 
 ## The Soundboard window
 
 Click the menu bar icon (right-click it for the menu). It's one window with five
-tabs, and a status strip along the bottom that shows the Stream Deck, the output Zoom
-hears, your mic, and sync.
+tabs, and a status strip along the bottom that shows the Stream Deck, the output, your
+mic, and sync.
 
 ### Sounds & Keys
 
@@ -112,14 +126,14 @@ Laid out in the order the signal flows, with a live level meter at each stage:
 - **Test input**: record until you press Stop (2 minutes at most), then play it back
   processed or unprocessed. It plays on the monitor device only, never to the output.
   Change the settings and play again to hear the same recording with them.
-- **Output**: the device the mix goes to (BlackHole 2ch, which your call app uses as its
-  microphone), and the input and sounds volumes in that mix.
+- **Output**: the device the mix goes to (BlackHole 2ch, which your meeting app uses as
+  its microphone), and the input and sounds volumes in that mix.
 - **Monitor**: where you hear the sounds and input tests yourself.
 
-Between calls Soundboard keeps every audio device closed, so macOS's mic indicator stays
-off and your Mac can sleep. The mic and output open as soon as another app (Zoom) listens
-to the output, or while this tab is open, and close a few seconds after. Pressing a key
-outside a call opens your headphones for that sound (about a tenth of a second) and keeps
+Between meetings Soundboard keeps every audio device closed, so macOS's mic indicator stays
+off and your Mac can sleep. The mic and output open as soon as another app listens to the
+output, or while this tab is open, and close a few seconds after. Pressing a key
+outside a meeting opens your headphones for that sound (about a tenth of a second) and keeps
 them open for 30 seconds after the last one.
 
 ### Settings
@@ -174,8 +188,8 @@ in, the Sync tab shows why.
 - A green border shows what's playing.
 - **The two touch buttons under the Neo's screen** switch pages.
 - **The Neo's screen** shows the playing sound's waveform, with how far it has got and
-  the time left. Otherwise, while your input is on (during a call), it shows your voice level over the
-  last few seconds. Green is what Zoom hears and grey is the raw input, so you can see
+  the time left. Otherwise, while your input is on (during a meeting), it shows your voice level over
+  the last few seconds. Green is what the output gets and grey is the raw input, so you can see
   noise removal working. Red means the input clipped. A green person-with-waves icon
   (Apple's Voice Isolation symbol) means noise removal is on. After a few seconds of silence the
   screen stops updating.
@@ -187,7 +201,7 @@ in, the Sync tab shows why.
 Rest the pointer in the **bottom-left corner** of the screen for a moment and a small
 palette fans out of it: the same keys as the pad, on the same page, with the page
 switcher underneath when you have more than one. Click a key to play it; hold Bleep
-like you would on the deck. The palette never takes focus, so Zoom stays in front, and
+like you would on the deck. The palette never takes focus, so your meeting stays in front, and
 it folds away when the pointer leaves it or you click elsewhere. Menu → **Show Palette**
 opens it too.
 
@@ -206,8 +220,8 @@ Macs. `local.json` holds this Mac's audio settings, which don't sync:
 ```jsonc
 // local.json
 {
-  "outputDevice": "BlackHole 2ch",       // what Zoom listens to
-  "micDevice": "fifine Microphone",      // null = macOS default input
+  "outputDevice": "BlackHole 2ch",       // what other apps use as their mic
+  "micDevice": null,                     // null = macOS default input
   "micPassthrough": true,                // route the input to the output
   "micVolume": 1.0,
   "noiseSuppression": true,              // noise removal on the input (not the sounds)
@@ -256,12 +270,15 @@ Macs. `local.json` holds this Mac's audio settings, which don't sync:
 - **Audio files dropped into `sounds/`** are added to the library automatically.
 
 Use **headphones** for monitoring. If the sounds come out of your speakers, your mic
-picks them up again and Zoom hears them twice.
+picks them up again and everyone hears them twice.
 
 ## Hardware
 
 Tested on the **Stream Deck Neo**. The original Stream Deck (v2), MK.2 and XL use the
-same protocol and are included, but they're untested.
+same protocol and are included, but they're untested. No deck? Use the
+[on-screen palette](#without-a-stream-deck).
+
+Stream Deck is a trademark of Elgato. This project isn't affiliated with or endorsed by Elgato.
 
 ## Development
 
