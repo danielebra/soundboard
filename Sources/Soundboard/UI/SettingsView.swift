@@ -197,7 +197,8 @@ final class SettingsModel: ObservableObject {
                 entry.file = clip.sound
                 if let image = clip.image { entry.image = image }
             }
-            // The clip is saved under a new name; a stale file left in sounds/ would be re-added by upgrade.
+            // Usually the clip overwrote the file. If it got a new name (a starter, a shared file, not a WAV),
+            // the old file goes, or upgrade would re-add it as a duplicate.
             if let old { discardUnused(file: old.file, image: clip.image == nil ? nil : old.image) }
             selection = .sound(id)
         case .library:
@@ -222,6 +223,15 @@ final class SettingsModel: ObservableObject {
         }
         discardUnused(file: entry.file, image: entry.image)
         selection = nil
+    }
+
+    /// The sound's file if re-clipping may overwrite it: a WAV of ours (not a starter in
+    /// /System/Library/Sounds) that no other sound plays.
+    func ownFile(of id: String) -> String? {
+        guard let file = entry(id)?.file, file.lowercased().hasSuffix(".wav"),
+              Paths.resolve(file, in: Paths.sounds).deletingLastPathComponent().standardizedFileURL == Paths.sounds.standardizedFileURL,
+              config.library.filter({ $0.file == file }).count == 1 else { return nil }
+        return file
     }
 
     /// Discards a sound file and image that no library entry uses any more.

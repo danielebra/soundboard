@@ -79,6 +79,8 @@ final class ClipEditorModel: ObservableObject {
     private var stopObserver: Any?
     private var fetchTask: Task<Void, Never>?
     var onSave: ((Result) -> Void)?
+    /// The file saving overwrites (re-clipping a sound), else nil for a new file.
+    var replacing: () -> String? = { nil }
 
     init() {
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 30), queue: .main) { [weak self] time in
@@ -297,10 +299,22 @@ final class ClipEditorModel: ObservableObject {
         let normalize = normalize, useFrame = useFrame && hasVideo, showLabel = showLabel, frameTime = start + min(0.2, selectionLength / 2)
         Task { @MainActor in
             do {
-                let base = Self.uniqueBase(Self.slug(name))
-                let soundFile = "\(base).wav"
+                let replacing = self.replacing()
+                let soundFile = replacing ?? Self.uniqueName(Self.slug(name), "wav", in: Paths.sounds)
+                let destination = Paths.sounds.appending(path: soundFile)
                 try await Task.detached {
-                    try Self.export(asset, range: range, normalize: normalize, to: Paths.sounds.appending(path: soundFile))
+                    guard replacing != nil else { return try Self.export(asset, range: range, normalize: normalize, to: destination) }
+                    // Export beside it first, so a failed export leaves the sound as it was.
+                    let fm = FileManager.default
+                    try fm.createDirectory(at: Fetcher.downloads, withIntermediateDirectories: true)
+                    let temp = Fetcher.downloads.appending(path: "reclip-\(UUID().uuidString).wav")
+                    try Self.export(asset, range: range, normalize: normalize, to: temp)
+                    try? fm.trashItem(at: destination, resultingItemURL: nil) // the previous version stays recoverable
+                    if fm.fileExists(atPath: destination.path) {
+                        _ = try fm.replaceItemAt(destination, withItemAt: temp)
+                    } else {
+                        try fm.moveItem(at: temp, to: destination)
+                    }
                 }.value
                 var imageFile: String?
                 if useFrame {
@@ -310,7 +324,8 @@ final class ClipEditorModel: ObservableObject {
                     generator.requestedTimeToleranceBefore = .zero
                     generator.requestedTimeToleranceAfter = CMTime(seconds: 0.1, preferredTimescale: 600)
                     if let frame = try? await generator.image(at: CMTime(seconds: frameTime, preferredTimescale: 600)).image {
-                        imageFile = "\(base).jpg"
+                        imageFile = Self.uniqueName(URL(fileURLWithPath: soundFile).deletingPathExtension().lastPathComponent,
+                                                    "jpg", in: Paths.icons)
                         try KeyRenderer.jpeg(frame, rotate: false).write(to: Paths.icons.appending(path: imageFile!))
                     }
                 }
@@ -386,11 +401,11 @@ final class ClipEditorModel: ObservableObject {
         return String(slug.prefix(40)).isEmpty ? "clip" : String(slug.prefix(40))
     }
 
-    private static func uniqueBase(_ base: String) -> String {
-        var candidate = base
+    private static func uniqueName(_ base: String, _ ext: String, in dir: URL) -> String {
+        var candidate = "\(base).\(ext)"
         var n = 2
-        while FileManager.default.fileExists(atPath: Paths.sounds.appending(path: "\(candidate).wav").path) {
-            candidate = "\(base)-\(n)"
+        while FileManager.default.fileExists(atPath: dir.appending(path: candidate).path) {
+            candidate = "\(base)-\(n).\(ext)"
             n += 1
         }
         return candidate

@@ -245,9 +245,15 @@ final class MainWindow: NSObject, NSWindowDelegate {
         let model = MainModel(settings: settings, router: app.router)
         model.syncNow = { [weak app] in app?.syncNow() }
         settings.openClipEditor = { [weak self] target, file in self?.showEditor(target: target, file: file) }
+        model.editor.replacing = { [weak model] in
+            guard let model, case let .replace(id) = model.clipTarget else { return nil }
+            return model.settings.ownFile(of: id)
+        }
         model.editor.onSave = { [weak self, weak model] result in
             guard let self, let model else { return }
             model.settings.addClip(result, to: model.clipTarget)
+            // An overwritten file may leave config.json as it was, which is what normally starts a sync.
+            if case .replace = model.clipTarget { self.app.sync.changed() }
             model.clipTarget = .library
             model.editor.reset()
             self.show(.pad)
