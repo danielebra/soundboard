@@ -62,6 +62,7 @@ sandbox container: `Paths.home` uses `getpwuid`, and the entitlements grant a
 
 | File | What it does |
 | --- | --- |
+| `Resources/AppIcon.icns` | App icon, copied into the bundle by `build.sh` |
 | `Config.swift` | `Config` (v2), `SoundEntry` (library), `ButtonConfig` (key), `KeyFace`, v1→v2 `upgrade`, config.json/local.json split, `Paths` |
 | `AppController.swift` | App delegate: config load/save/apply, file watchers, deck events → actions, menu bar, status |
 | `AudioRouter.swift` | The three AVAudioEngines (started on demand), voice pool, play/stop/overlay, bleep (censor), async device setup |
