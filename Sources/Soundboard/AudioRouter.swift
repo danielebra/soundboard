@@ -375,6 +375,11 @@ final class AudioRouter {
     private let taps = TapState()
     private var previewPlayer: AVAudioPlayerNode?
     private var previewToken = 0
+    /// A library sound being auditioned on the monitor (see `previewSound`).
+    private var soundPreview: AVAudioPlayerNode?
+    private var soundPreviewToken = 0
+    private var soundPreviewDone: (() -> Void)?
+    private var soundPreviewStart: (() -> Void)?
     private var observers: [NSObjectProtocol] = []
     private var micNode: AVAudioSourceNode?
     private var micFilter: AVAudioUnitEffect?
@@ -402,6 +407,7 @@ final class AudioRouter {
         var broadcastTone: AVAudioSourceNode?
         var monitorTone: AVAudioSourceNode?
         var previewPlayer: AVAudioPlayerNode?
+        var soundPreview: AVAudioPlayerNode?
         var outputDevice: AudioDeviceID?
         var status = Status()
         /// Built by `buildBroadcast` (virtual device) rather than `buildLocal` (mic, headphones).
@@ -480,6 +486,7 @@ final class AudioRouter {
             monitor = built.monitor
             monitorTone = built.monitorTone
             previewPlayer = built.previewPlayer
+            soundPreview = built.soundPreview
             status.mic = built.status.mic
             status.micProblem = built.status.micProblem
             status.monitor = built.status.monitor
@@ -546,6 +553,7 @@ final class AudioRouter {
                     let preview = bus.addPreviewPlayer()
                     built.monitorTone = tone
                     built.previewPlayer = preview
+                    built.soundPreview = bus.addPreviewPlayer()
                     built.monitor = bus
                     built.status.monitor = device.name
                 } catch {
@@ -746,6 +754,8 @@ final class AudioRouter {
         monitor = nil
         taps.cancelRecording()
         previewPlayer = nil
+        endSoundPreview()
+        soundPreview = nil
         micNode = nil
         micFilter = nil
         broadcastTone = nil
@@ -816,7 +826,12 @@ final class AudioRouter {
 
     /// Plays sounds that were pressed while their engine started, once nothing is starting.
     private func playPending() {
-        guard !pending.isEmpty, !switching.contains(where: { $0 != .mic }) else { return }
+        guard !switching.contains(where: { $0 != .mic }) else { return }
+        if let start = soundPreviewStart {
+            soundPreviewStart = nil
+            start()
+        }
+        guard !pending.isEmpty else { return }
         let ready = pending
         pending.removeAll()
         for press in ready where voiceToken[press.voice] == press.token {
@@ -830,7 +845,7 @@ final class AudioRouter {
 
     /// Keeps the monitor open a while after the last sound, so the next press plays at once.
     private func soundsMayHaveEnded() {
-        guard !voiceOwner.contains(where: { $0 != nil }) else { return }
+        guard !voiceOwner.contains(where: { $0 != nil }), soundPreviewDone == nil else { return }
         lingerWork?.cancel()
         let work = DispatchWorkItem { [weak self] in self?.setDemand(.playback, false) }
         lingerWork = work
@@ -940,6 +955,44 @@ final class AudioRouter {
                 player.play()
             }
         }
+    }
+
+    /// Auditions a library sound on the monitor only, through the same path and volume as a key press
+    /// (the sound's volume, then the monitor volume), so it sounds like it will when played. Never
+    /// reaches the output. Returns false when there's no monitor; the caller can play it another way.
+    /// `done` runs on the main thread when it ends, is stopped or can't start.
+    func previewSound(_ sound: AVAudioPCMBuffer, volume: Float, done: @escaping () -> Void) -> Bool {
+        guard let player = soundPreview else { return false }
+        endSoundPreview()
+        soundPreviewToken += 1
+        let token = soundPreviewToken
+        soundPreviewDone = done
+        setDemand(.playback, true)
+        lingerWork?.cancel()
+        soundPreviewStart = { [weak self] in
+            guard let self, token == self.soundPreviewToken else { return }
+            guard self.monitor?.engine.isRunning == true else { return self.endSoundPreview() }
+            player.volume = volume
+            player.scheduleBuffer(sound, at: nil, options: [], completionCallbackType: .dataPlayedBack) { _ in
+                DispatchQueue.main.async { if token == self.soundPreviewToken { self.endSoundPreview() } }
+            }
+            player.play()
+        }
+        // Starts now if the monitor is running, else `playPending` does once it is.
+        playPending()
+        return true
+    }
+
+    func stopSoundPreview() { endSoundPreview() }
+
+    private func endSoundPreview() {
+        soundPreviewToken += 1
+        soundPreviewStart = nil
+        soundPreview?.stop()
+        let done = soundPreviewDone
+        soundPreviewDone = nil
+        done?()
+        if done != nil { soundsMayHaveEnded() }
     }
 
     func stopTest() {
