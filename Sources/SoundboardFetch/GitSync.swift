@@ -45,12 +45,18 @@ struct GitSync {
             try git.run(["remote", "add", "origin", remote])
         }
 
-        try git.run(["add", "-A"])
-        if (try? git.run(["diff", "--cached", "--quiet"])) == nil {
-            progress("Saving changes…")
-            try git.run(["commit", "-q", "-m", "Changes from \(Self.machine)"])
+        // A Mac with only the starter sounds takes the repository's copy as it is, rather than
+        // committing the starters as a second root that then has to be merged.
+        let adopted = (try? git.run(["rev-parse", "--verify", "-q", "HEAD"])) == nil
+            ? try adoptRepository(git) : false
+        if !adopted {
+            try git.run(["add", "-A"])
+            if (try? git.run(["diff", "--cached", "--quiet"])) == nil {
+                progress("Saving changes…")
+                try git.run(["commit", "-q", "-m", "Changes from \(Self.machine)"])
+            }
         }
-        let before = try git.run(["rev-parse", "HEAD"])
+        let before = adopted ? Self.emptyTree : try git.run(["rev-parse", "HEAD"])
 
         // Someone else may push between our fetch and push; then merge their change and retry.
         for attempt in 1...3 {
@@ -83,6 +89,40 @@ struct GitSync {
 
         let received = try git.run(["diff", "--name-only", before, "HEAD"]).split(separator: "\n").count
         return received == 0 ? "Up to date" : "Received \(received) changed file\(received == 1 ? "" : "s")"
+    }
+
+    private static let emptyTree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+    /// For a folder with no commits yet: if the repository already holds a Soundboard and this
+    /// folder has nothing of its own (just the starter config), checks out the repository's copy
+    /// and returns true. Otherwise leaves everything for the normal commit and merge.
+    private func adoptRepository(_ git: Git) throws -> Bool {
+        guard Self.isUntouchedStarter(root) else { return false }
+        let head = try git.network(["ls-remote", "--symref", "origin", "HEAD"])
+        guard let branch = head.split(separator: "\n").first(where: { $0.hasPrefix("ref: refs/heads/") })
+            .map({ String($0.dropFirst("ref: refs/heads/".count).prefix { $0 != "\t" }) }) else { return false }
+        progress("Connecting…")
+        progress("Getting changes…")
+        try git.network(["fetch", "-q", "origin", branch])
+        guard (try? git.run(["cat-file", "-e", "FETCH_HEAD:config.json"])) != nil else { return false }
+        // Check that we may push before taking anything (a dry run creates nothing).
+        try git.network(["push", "-q", "--dry-run", "origin", "FETCH_HEAD:refs/heads/soundboard-access-check"])
+        try git.run(["reset", "-q", "--hard", "FETCH_HEAD"])
+        return true
+    }
+
+    /// True when the folder holds no sounds or icons of its own and its library is only the
+    /// starter sounds that ship with Soundboard (or it has no config at all).
+    static func isUntouchedStarter(_ root: URL) -> Bool {
+        let fm = FileManager.default
+        for folder in ["sounds", "icons"] {
+            let files = (try? fm.contentsOfDirectory(atPath: root.appending(path: folder).path)) ?? []
+            if files.contains(where: { !$0.hasPrefix(".") && $0 != "Deleted" }) { return false }
+        }
+        guard let data = try? Data(contentsOf: root.appending(path: "config.json")) else { return true }
+        guard let config = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let library = config["library"] as? [[String: Any]] else { return false }
+        return library.allSatisfy { ($0["file"] as? String)?.hasPrefix("/System/Library/Sounds/") == true }
     }
 
     /// Merges the fetched copy. config.json goes through `ConfigMerge`; for any other file both
