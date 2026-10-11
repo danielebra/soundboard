@@ -37,6 +37,8 @@ final class SettingsModel: ObservableObject {
     private var previewing = false
     var router: AudioRouter?
     var openClipEditor: ((ClipTarget, URL?) -> Void)?
+    /// Plays a library sound like a key press, so the call hears it too (`AppController.playToOutput`).
+    var playToOutput: ((String) -> Void)?
 
     init(config: Config, keyCount: Int, columns: Int, assets: AssetCache, commit: @escaping (Config) -> Void) {
         self.config = config
@@ -538,6 +540,7 @@ private struct LibraryRow: View {
         .contextMenu {
             Button("Place on First Empty Key") { model.placeOnFirstEmptyKey(entry.id) }
             Button("Preview") { model.preview(entry) }
+            Button("Play to Output") { model.playToOutput?(entry.id) }
             Divider()
             Button("Delete from Library…", role: .destructive) { confirmDelete = true }
         }
@@ -820,9 +823,12 @@ private struct SoundFields: View {
             HStack {
                 Text(entry?.file ?? "").lineLimit(1).truncationMode(.middle).foregroundStyle(.secondary)
                 Spacer()
-                Button("Preview", systemImage: "play.fill") { if let entry { model.preview(entry) } }
+                Button("Preview", systemImage: "headphones") { if let entry { model.preview(entry) } }
                     .labelStyle(.iconOnly)
-                    .help("Plays on this Mac only, not to the output")
+                    .help("Preview: plays on your monitor only, so the call doesn't hear it")
+                Button("Play to Output", systemImage: "dot.radiowaves.left.and.right") { model.playToOutput?(id) }
+                    .labelStyle(.iconOnly)
+                    .help("Plays like a key press, so the call hears it too. Click again to stop.")
             }
             HStack {
                 Button("Replace Audio…") {

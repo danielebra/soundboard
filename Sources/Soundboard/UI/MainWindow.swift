@@ -244,6 +244,7 @@ final class MainWindow: NSObject, NSWindowDelegate {
         settings.router = app.router
         let model = MainModel(settings: settings, router: app.router)
         model.syncNow = { [weak app] in app?.syncNow() }
+        settings.playToOutput = { [weak app] id in app?.playToOutput(sound: id) }
         settings.openClipEditor = { [weak self] target, file in self?.showEditor(target: target, file: file) }
         model.editor.replacing = { [weak model] in
             guard let model, case let .replace(id) = model.clipTarget else { return nil }

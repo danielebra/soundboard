@@ -302,6 +302,14 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
         }
     }
 
+    /// Plays a library sound the way a key does, so it reaches the output (and the call) as well as the
+    /// monitor. Tap again to stop. For sounds that aren't on a key, or to play one from the window.
+    func playToOutput(sound id: String) {
+        guard let entry = config.entry(id), case let .success(sound) = assets.sound(entry.file) else { return }
+        router.play(key: Self.libraryKey(id), sound: sound, volume: entry.volume ?? 1, mode: .toggle,
+                    stopOthers: config.stopOthers)
+    }
+
     /// A global keyboard shortcut went down or up.
     private func shortcut(_ command: ShortcutCommand, pressed: Bool) {
         switch command {
@@ -320,6 +328,16 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
     }
 
     private static func key(_ page: Int, _ index: Int) -> String { "\(page).\(index)" }
+
+    /// The playback key of a library sound played from the window rather than a deck key.
+    private static func libraryKey(_ id: String) -> String { "library:\(id)" }
+
+    /// The library sound a playback key plays, for a deck key or a library sound.
+    private func entry(playing key: String) -> SoundEntry? {
+        if key.hasPrefix("library:") { return config.entry(String(key.dropFirst("library:".count))) }
+        let parts = key.split(separator: ".").compactMap { Int($0) }
+        return parts.count == 2 ? config.entry(button(page: parts[0], index: parts[1])?.sound) : nil
+    }
 
     private func button(page: Int, index: Int) -> ButtonConfig? {
         guard config.pages.indices.contains(page), config.pages[page].indices.contains(index) else { return nil }
@@ -399,11 +417,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
             : status.outputProblem != nil ? "no output" : nil
 
         if censorKey == nil, let key = nowPlaying.last, let progress = router.progress(key) {
-            let parts = key.split(separator: ".").compactMap { Int($0) }
-            let button = parts.count == 2 ? button(page: parts[0], index: parts[1]) : nil
-            let entry = config.entry(button?.sound)
+            let entry = entry(playing: key)
             let others = nowPlaying.count - 1
-            let title = "▶ \(entry?.name ?? button?.label ?? "Sound")" + (others > 0 ? "  +\(others)" : "")
+            let title = "▶ \(entry?.name ?? "Sound")" + (others > 0 ? "  +\(others)" : "")
             let remaining = Int((progress.duration - progress.elapsed).rounded(.up))
             let columns = KeyRenderer.waveformColumns(screenWidth: width)
             let peaks = entry.flatMap { assets.waveform($0.file, columns: columns) } ?? Array(repeating: 0, count: columns)
