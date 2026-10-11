@@ -464,7 +464,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
     // MARK: Menu
 
     /// What's wrong right now, one short line each. Empty when everything works; the menu shows
-    /// only these, and the icon turns into a warning for them.
+    /// only these, and the icon gets a dot for them.
     private var problems: [String] {
         let status = router.status
         var lines: [String] = []
@@ -482,10 +482,26 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
         return lines
     }
 
-    /// The menu bar icon, with a warning mark while something is wrong.
+    /// The menu bar icon: always the app's grid, with a dot in the corner while something is wrong.
+    /// Still a template image, so the dot is a cutout ring around a filled circle, not a colour.
     private func updateStatusIcon() {
-        let symbol = problems.isEmpty ? "square.grid.2x2.fill" : "exclamationmark.triangle.fill"
-        statusItem.button?.image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Soundboard")
+        let base = NSImage(systemSymbolName: "square.grid.2x2.fill", accessibilityDescription: "Soundboard")
+        guard !problems.isEmpty, let base else {
+            statusItem.button?.image = base
+            return
+        }
+        let image = NSImage(size: base.size, flipped: false) { rect in
+            base.draw(in: rect)
+            let dot = NSRect(x: rect.maxX - 8, y: rect.minY - 1, width: 8, height: 8)
+            NSGraphicsContext.current?.cgContext.setBlendMode(.clear)
+            NSBezierPath(ovalIn: dot.insetBy(dx: -1.5, dy: -1.5)).fill()
+            NSGraphicsContext.current?.cgContext.setBlendMode(.normal)
+            NSBezierPath(ovalIn: dot).fill()
+            return true
+        }
+        image.isTemplate = true
+        image.accessibilityDescription = "Soundboard, needs attention"
+        statusItem.button?.image = image
     }
 
     /// A short menu: the window is where everything happens. Shortcuts shown are the real global
