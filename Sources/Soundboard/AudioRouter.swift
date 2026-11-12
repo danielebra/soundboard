@@ -754,8 +754,11 @@ final class AudioRouter {
             if kind == .mic { applyNoiseRemoval() }
         }
         NSLog("Soundboard: %@ %@", "\(kind)", isLive(kind) ? "running" : "stopped")
+        // Demand may have changed while switching. This goes before `playPending`: a key pressed
+        // while the monitor was stopping needs it started again, and `playPending` then waits for
+        // that start instead of finding nothing running and dropping the press.
+        updateEngines(stopping: pauseWork == nil)
         playPending()
-        updateEngines(stopping: pauseWork == nil) // demand may have changed while switching
         onStatusChange?()
     }
 
