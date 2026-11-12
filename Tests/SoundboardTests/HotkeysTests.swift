@@ -51,7 +51,7 @@ final class HotkeysTests: XCTestCase {
         XCTAssertEqual(events, ["1 down", "1 up", "1 down", "1 up"])
     }
 
-    /// Unregistering (a modifier change) must not leave a held key down: Bleep would stay on.
+    /// Changing the modifiers unregisters the hot keys; a key held then must still come up.
     func testReleaseHeldReportsHeldKeysUpOnce() throws {
         let hotkeys = Hotkeys()
         var events: [String] = []

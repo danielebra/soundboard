@@ -203,7 +203,7 @@ page back/forward), and a 248×58 info screen.
   `SOUNDBOARD_DEBUG=1` logs the average screen write time. Measured on the Neo (USB high
   speed): ~5 KB per frame, a 2 ms write, and about +0.3% of a core over the ~7% the audio
   engines use, so 20 fps leaves plenty of room.
-- **A held Bleep is released by key position, not by page** (`censorIndex`), and also when the deck disconnects or
+- **A held Bleep is released by key position, not by page** (`heldCensor`), and also when the deck disconnects or
   the shortcuts are re-registered. Matching the release against the current page left it stuck on after a page turn.
 - **Without a deck**, `Palette` mirrors the current page (`keyLayout` falls back to the Neo's
   4×2) and calls the same `AppController.press(index:pressed:)` / `turnPage(by:)` as the deck.

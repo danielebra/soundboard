@@ -471,8 +471,8 @@ func preview(_ url: URL) throws {
 // MARK: - Main
 
 do {
-    // Say we're running before anything slow (yt-dlp look-ups, scanning a page): the app takes a
-    // missing status file after 20 s to mean the helper never launched.
+    // A first status before anything slow (a yt-dlp look-up, scanning a page): the app takes
+    // no status file after 20 s to mean the helper never launched.
     progress(0, "Starting…")
     if request["mode"] == "sync" {
         let summary = try GitSync(root: root, remote: link) { progress(0, $0) }.run()

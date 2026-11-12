@@ -396,8 +396,8 @@ final class AudioRouter {
     private var demand: Demand = []
     /// Engines being started or stopped on `setupQueue`.
     private var switching: Set<Engine> = []
-    /// Engines that didn't start. They're left alone until the next rebuild or new demand, or
-    /// `updateEngines` would retry them in a tight loop for as long as they're wanted.
+    /// Engines whose last start failed. `updateEngines` leaves them alone until a rebuild or a
+    /// new reason to run, rather than retrying for as long as they're wanted.
     private var failed: Set<Engine> = []
     private var pauseWork: DispatchWorkItem?
     private var lingerWork: DispatchWorkItem?
@@ -406,8 +406,15 @@ final class AudioRouter {
     /// For noise removal, which is bypassed while the input is paused.
     private var settings = Config()
 
-    /// The devices the current setup picked, as they were then.
-    private var picked: (mic: AudioDevice?, monitor: AudioDevice?, output: AudioDevice?)
+    /// The devices a setup uses. Nil: switched off in the config, or not found.
+    private struct Devices: Equatable {
+        var mic: AudioDevice?
+        var monitor: AudioDevice?
+        var output: AudioDevice?
+    }
+
+    /// What the current setup was built with, to tell whether a device change affects it.
+    private var picked = Devices()
 
     private struct Built {
         var broadcast: OutputBus?
@@ -419,7 +426,7 @@ final class AudioRouter {
         var monitorTone: AVAudioSourceNode?
         var previewPlayer: AVAudioPlayerNode?
         var soundPreview: AVAudioPlayerNode?
-        /// The devices this stage picked (whether or not they opened), for `deviceChangeNeedsRebuild`.
+        /// The devices this stage picked, whether or not they opened (see `Devices`).
         var micDevice: AudioDevice?
         var monitorDevice: AudioDevice?
         var outputDevice: AudioDevice?
@@ -644,27 +651,28 @@ final class AudioRouter {
         return built
     }
 
-    /// The input the config asks for: the named device, or the system default.
-    private static func inputDevice(_ config: Config) -> AudioDevice? {
-        config.micDevice.flatMap { AudioDevices.find($0, output: false) }
-            ?? (config.micDevice == nil ? AudioDevices.defaultDevice(output: false) : nil)
+    /// The device with this name, or the system default when the config names none.
+    private static func device(named name: String?, output: Bool) -> AudioDevice? {
+        guard let name else { return AudioDevices.defaultDevice(output: output) }
+        return AudioDevices.find(name, output: output)
     }
 
-    private static func monitorDevice(_ config: Config) -> AudioDevice? {
-        config.monitorDevice.flatMap { AudioDevices.find($0, output: true) }
-            ?? (config.monitorDevice == nil ? AudioDevices.defaultDevice(output: true) : nil)
-    }
+    private static func inputDevice(_ config: Config) -> AudioDevice? { device(named: config.micDevice, output: false) }
 
-    /// Whether a change to the Mac's audio devices matters here. A rebuild stops every sound and
-    /// drops the input for a moment, so headphones connecting or a camera being plugged in during
-    /// a call shouldn't cause one unless a device in use changed (or the default it follows did).
-    /// Anything that isn't working rebuilds as before: the new device may be the missing one.
+    private static func monitorDevice(_ config: Config) -> AudioDevice? { device(named: config.monitorDevice, output: true) }
+
+    /// Whether a change to the Mac's audio devices affects this setup. A rebuild stops every
+    /// sound and drops the input for a moment, so a device that isn't in use (headphones
+    /// connecting, a camera plugged in) shouldn't cause one mid-call. It does when a device in
+    /// use, or the system default it follows, changed, and whenever something isn't working:
+    /// the new device may be the one that was missing.
     func deviceChangeNeedsRebuild() -> Bool {
         if status.connecting != nil || status.outputProblem != nil || status.micProblem != nil { return true }
-        if settings.monitor, monitor == nil, picked.monitor != picked.output { return true } // didn't open
-        let now = (mic: settings.micPassthrough ? Self.inputDevice(settings) : nil,
-                   monitor: settings.monitor ? Self.monitorDevice(settings) : nil,
-                   output: AudioDevices.find(settings.outputDevice, output: true))
+        // The monitor is skipped on purpose only when it's the output device.
+        if settings.monitor, monitor == nil, picked.monitor != picked.output { return true }
+        let now = Devices(mic: settings.micPassthrough ? Self.inputDevice(settings) : nil,
+                          monitor: settings.monitor ? Self.monitorDevice(settings) : nil,
+                          output: AudioDevices.find(settings.outputDevice, output: true))
         return now != picked
     }
 
@@ -687,7 +695,7 @@ final class AudioRouter {
     func setDemand(_ reason: Demand, _ on: Bool) {
         if on {
             demand.insert(reason)
-            failed.removeAll() // something new wants audio: one more try
+            failed.removeAll() // a new reason to run earns another attempt
         } else {
             demand.remove(reason)
         }
@@ -740,7 +748,8 @@ final class AudioRouter {
         for kind in Engine.allCases where !switching.contains(kind) {
             guard let engine = audioEngine(kind) else { continue }
             let wanted = isWanted(kind)
-            if wanted == isLive(kind) || (!wanted && !stopping) || (wanted && failed.contains(kind)) { continue }
+            if wanted == isLive(kind) { continue }
+            if wanted ? failed.contains(kind) : !stopping { continue }
             switching.insert(kind)
             if !wanted {
                 setLive(kind, false) // before stopping, so the stop isn't taken for a failure
@@ -787,9 +796,8 @@ final class AudioRouter {
             if kind == .mic { applyNoiseRemoval() }
         }
         NSLog("Soundboard: %@ %@", "\(kind)", isLive(kind) ? "running" : "stopped")
-        // Demand may have changed while switching. This goes before `playPending`: a key pressed
-        // while the monitor was stopping needs it started again, and `playPending` then waits for
-        // that start instead of finding nothing running and dropping the press.
+        // Demand may have changed while switching. Before `playPending`, so a key pressed while
+        // its engine was stopping waits for the restart instead of finding nothing running.
         updateEngines(stopping: pauseWork == nil)
         playPending()
         onStatusChange?()

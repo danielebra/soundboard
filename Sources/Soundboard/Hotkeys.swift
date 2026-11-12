@@ -101,8 +101,8 @@ final class Hotkeys {
         }
     }
 
-    /// Reports every held shortcut as released. Once a hot key is unregistered its release never
-    /// arrives, which would leave a held Bleep on.
+    /// Reports every held shortcut as released. An unregistered hot key's release never arrives,
+    /// and Bleep lasts until its key comes up.
     func releaseHeld() {
         let ids = held.sorted()
         held.removeAll()
