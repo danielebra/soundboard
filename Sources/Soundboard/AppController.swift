@@ -16,6 +16,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
     private(set) var page = 0
     private var nowPlaying: [String] = []
     private var censorKey: String?
+    /// The key position holding the Bleep down, so its release is recognised on any page.
+    private var censorIndex: Int?
     /// Redraws the info screen while it shows something live; nil otherwise.
     private var screenTimer: Timer?
     private var lastScreen: ScreenFrame?
@@ -269,6 +271,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
 
     func deckDidDisconnect(_ deck: StreamDeck) {
         NSLog("Soundboard: disconnected %@", deck.model.name)
+        endCensor() // a Bleep held on the deck will never be released now
         palette.reload() // back to the Neo layout
         redrawScreen() // stops the screen timer
         publishStatus()
@@ -284,14 +287,19 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
 
     /// A key on the current page went down or up, on the deck or the on-screen palette.
     func press(index: Int, pressed: Bool) {
+        // The key that started a Bleep ends it, whatever is under it by now (the page may have
+        // turned or the config changed while it was held). Otherwise the bleep would never stop.
+        if !pressed, index == censorIndex { return endCensor() }
         guard let button = button(page: page, index: index) else { return }
         let key = Self.key(page, index)
         switch button.action {
         case .stop:
             if pressed { router.stopAll() }
         case .censor:
-            router.setCensor(pressed)
-            censorKey = pressed ? key : nil
+            guard pressed else { return }
+            router.setCensor(true)
+            censorKey = key
+            censorIndex = index
             redraw(key: key)
             redrawScreen()
         case nil:
@@ -300,6 +308,16 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
             router.play(key: key, sound: sound, volume: entry.volume ?? 1, mode: entry.mode ?? .toggle,
                         stopOthers: config.stopOthers)
         }
+    }
+
+    /// Ends a held Bleep: the input comes back and the tone stops.
+    private func endCensor() {
+        guard let key = censorKey else { return }
+        router.setCensor(false)
+        censorKey = nil
+        censorIndex = nil
+        redraw(key: key)
+        redrawScreen()
     }
 
     /// Plays a library sound the way a key does, so it reaches the output (and the call) as well as the

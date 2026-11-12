@@ -85,7 +85,7 @@ final class Hotkeys {
     private func register() {
         refs.forEach { UnregisterEventHotKey($0) }
         refs.removeAll()
-        held.removeAll()
+        releaseHeld()
         guard modifiers != .off else { return }
         installHandler()
         for (i, binding) in ShortcutCommand.bindings.enumerated() {
@@ -99,6 +99,14 @@ final class Hotkeys {
                 NSLog("Soundboard: registering shortcut %@ failed (%d)", modifiers.symbols + binding.command.keyName, status)
             }
         }
+    }
+
+    /// Reports every held shortcut as released. Once a hot key is unregistered its release never
+    /// arrives, which would leave a held Bleep on.
+    func releaseHeld() {
+        let ids = held.sorted()
+        held.removeAll()
+        for id in ids { onCommand?(ShortcutCommand.bindings[Int(id)].command, false) }
     }
 
     private func installHandler() {
