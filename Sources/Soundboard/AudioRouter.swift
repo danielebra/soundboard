@@ -396,12 +396,25 @@ final class AudioRouter {
     private var demand: Demand = []
     /// Engines being started or stopped on `setupQueue`.
     private var switching: Set<Engine> = []
+    /// Engines whose last start failed. `updateEngines` leaves them alone until a rebuild or a
+    /// new reason to run, rather than retrying for as long as they're wanted.
+    private var failed: Set<Engine> = []
     private var pauseWork: DispatchWorkItem?
     private var lingerWork: DispatchWorkItem?
     /// Sounds pressed while their engine was starting: voice and token, scheduled once it runs.
     private var pending: [(voice: Int, token: Int, sound: AVAudioPCMBuffer, volume: Float)] = []
     /// For noise removal, which is bypassed while the input is paused.
     private var settings = Config()
+
+    /// The devices a setup uses. Nil: switched off in the config, or not found.
+    private struct Devices: Equatable {
+        var mic: AudioDevice?
+        var monitor: AudioDevice?
+        var output: AudioDevice?
+    }
+
+    /// What the current setup was built with, to tell whether a device change affects it.
+    private var picked = Devices()
 
     private struct Built {
         var broadcast: OutputBus?
@@ -413,7 +426,10 @@ final class AudioRouter {
         var monitorTone: AVAudioSourceNode?
         var previewPlayer: AVAudioPlayerNode?
         var soundPreview: AVAudioPlayerNode?
-        var outputDevice: AudioDeviceID?
+        /// The devices this stage picked, whether or not they opened (see `Devices`).
+        var micDevice: AudioDevice?
+        var monitorDevice: AudioDevice?
+        var outputDevice: AudioDevice?
         var status = Status()
         /// Built by `buildBroadcast` (virtual device) rather than `buildLocal` (mic, headphones).
         var isBroadcastStage = false
@@ -485,8 +501,11 @@ final class AudioRouter {
             status.connecting = nil
             status.output = built.status.output
             status.outputProblem = built.status.outputProblem
-            listeners.watch(built.outputDevice)
+            listeners.watch(built.outputDevice?.id)
+            picked.output = built.outputDevice
         } else {
+            picked.mic = built.micDevice
+            picked.monitor = built.monitorDevice
             mic = built.mic
             monitor = built.monitor
             monitorTone = built.monitorTone
@@ -522,8 +541,8 @@ final class AudioRouter {
 
         // Microphone (optional).
         if config.micPassthrough {
-            let device = config.micDevice.flatMap { AudioDevices.find($0, output: false) }
-                ?? (config.micDevice == nil ? AudioDevices.defaultDevice(output: false) : nil)
+            let device = inputDevice(config)
+            built.micDevice = device
             if !micAllowed {
                 built.status.micProblem = "Microphone access not granted"
             } else if let device {
@@ -546,8 +565,8 @@ final class AudioRouter {
 
         // What you hear.
         if config.monitor {
-            let device = config.monitorDevice.flatMap { AudioDevices.find($0, output: true) }
-                ?? (config.monitorDevice == nil ? AudioDevices.defaultDevice(output: true) : nil)
+            let device = monitorDevice(config)
+            built.monitorDevice = device
             let output = AudioDevices.find(config.outputDevice, output: true)
             if let device, device.id != output?.id {
                 do {
@@ -581,7 +600,7 @@ final class AudioRouter {
             built.status.outputProblem = "“\(config.outputDevice)” not found. Is BlackHole installed?"
             return built
         }
-        built.outputDevice = device.id
+        built.outputDevice = device
         do {
             let bus = try OutputBus(device: device.id, voiceCount: voiceCount)
             bus.effects.outputVolume = config.soundVolume
@@ -632,6 +651,31 @@ final class AudioRouter {
         return built
     }
 
+    /// The device with this name, or the system default when the config names none.
+    private static func device(named name: String?, output: Bool) -> AudioDevice? {
+        guard let name else { return AudioDevices.defaultDevice(output: output) }
+        return AudioDevices.find(name, output: output)
+    }
+
+    private static func inputDevice(_ config: Config) -> AudioDevice? { device(named: config.micDevice, output: false) }
+
+    private static func monitorDevice(_ config: Config) -> AudioDevice? { device(named: config.monitorDevice, output: true) }
+
+    /// Whether a change to the Mac's audio devices affects this setup. A rebuild stops every
+    /// sound and drops the input for a moment, so a device that isn't in use (headphones
+    /// connecting, a camera plugged in) shouldn't cause one mid-call. It does when a device in
+    /// use, or the system default it follows, changed, and whenever something isn't working:
+    /// the new device may be the one that was missing.
+    func deviceChangeNeedsRebuild() -> Bool {
+        if status.connecting != nil || status.outputProblem != nil || status.micProblem != nil { return true }
+        // The monitor is skipped on purpose only when it's the output device.
+        if settings.monitor, monitor == nil, picked.monitor != picked.output { return true }
+        let now = Devices(mic: settings.micPassthrough ? Self.inputDevice(settings) : nil,
+                          monitor: settings.monitor ? Self.monitorDevice(settings) : nil,
+                          output: AudioDevices.find(settings.outputDevice, output: true))
+        return now != picked
+    }
+
     private func needsRebuild(_ engine: AVAudioEngine) -> Bool {
         // A stopped engine is only a failure while it's meant to be running; idle engines are
         // stopped on purpose (and a rebuild would leave them stopped, then post this again).
@@ -649,7 +693,12 @@ final class AudioRouter {
     /// Starts what's needed right away, and stops the rest a few seconds after the last
     /// reason goes away (so an app that briefly stops listening doesn't bounce the devices).
     func setDemand(_ reason: Demand, _ on: Bool) {
-        if on { demand.insert(reason) } else { demand.remove(reason) }
+        if on {
+            demand.insert(reason)
+            failed.removeAll() // a new reason to run earns another attempt
+        } else {
+            demand.remove(reason)
+        }
         pauseWork?.cancel()
         pauseWork = nil
         updateEngines(stopping: false)
@@ -699,7 +748,8 @@ final class AudioRouter {
         for kind in Engine.allCases where !switching.contains(kind) {
             guard let engine = audioEngine(kind) else { continue }
             let wanted = isWanted(kind)
-            if wanted == isLive(kind) || (!wanted && !stopping) { continue }
+            if wanted == isLive(kind) { continue }
+            if wanted ? failed.contains(kind) : !stopping { continue }
             switching.insert(kind)
             if !wanted {
                 setLive(kind, false) // before stopping, so the stop isn't taken for a failure
@@ -736,6 +786,7 @@ final class AudioRouter {
         }
         if let failure {
             NSLog("Soundboard: %@ didn't start: %@", "\(kind)", failure)
+            failed.insert(kind)
             if kind == .mic {
                 status.micProblem = "\(status.mic ?? "Input"): \(failure)"
                 status.mic = nil
@@ -745,14 +796,17 @@ final class AudioRouter {
             if kind == .mic { applyNoiseRemoval() }
         }
         NSLog("Soundboard: %@ %@", "\(kind)", isLive(kind) ? "running" : "stopped")
+        // Demand may have changed while switching. Before `playPending`, so a key pressed while
+        // its engine was stopping waits for the restart instead of finding nothing running.
+        updateEngines(stopping: pauseWork == nil)
         playPending()
-        updateEngines(stopping: pauseWork == nil) // demand may have changed while switching
         onStatusChange?()
     }
 
     func teardown() {
         stopAll()
         pending.removeAll()
+        failed.removeAll()
         observers.forEach(NotificationCenter.default.removeObserver)
         observers.removeAll()
         let engines = [mic?.engine, broadcast?.engine, monitor?.engine]

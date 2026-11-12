@@ -50,4 +50,19 @@ final class HotkeysTests: XCTestCase {
 
         XCTAssertEqual(events, ["1 down", "1 up", "1 down", "1 up"])
     }
+
+    /// Changing the modifiers unregisters the hot keys; a key held then must still come up.
+    func testReleaseHeldReportsHeldKeysUpOnce() throws {
+        let hotkeys = Hotkeys()
+        var events: [String] = []
+        hotkeys.onCommand = { command, pressed in events.append("\(command.keyName) \(pressed ? "down" : "up")") }
+        let row8 = try id(.key(7), keyCode: kVK_ANSI_8)
+
+        hotkeys.handle(row8, pressed: true)
+        hotkeys.releaseHeld()
+        hotkeys.releaseHeld()
+        hotkeys.handle(row8, pressed: false) // the real release, if it still arrives
+
+        XCTAssertEqual(events, ["8 down", "8 up"])
+    }
 }
