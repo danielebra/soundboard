@@ -396,6 +396,9 @@ final class AudioRouter {
     private var demand: Demand = []
     /// Engines being started or stopped on `setupQueue`.
     private var switching: Set<Engine> = []
+    /// Engines that didn't start. They're left alone until the next rebuild or new demand, or
+    /// `updateEngines` would retry them in a tight loop for as long as they're wanted.
+    private var failed: Set<Engine> = []
     private var pauseWork: DispatchWorkItem?
     private var lingerWork: DispatchWorkItem?
     /// Sounds pressed while their engine was starting: voice and token, scheduled once it runs.
@@ -649,7 +652,12 @@ final class AudioRouter {
     /// Starts what's needed right away, and stops the rest a few seconds after the last
     /// reason goes away (so an app that briefly stops listening doesn't bounce the devices).
     func setDemand(_ reason: Demand, _ on: Bool) {
-        if on { demand.insert(reason) } else { demand.remove(reason) }
+        if on {
+            demand.insert(reason)
+            failed.removeAll() // something new wants audio: one more try
+        } else {
+            demand.remove(reason)
+        }
         pauseWork?.cancel()
         pauseWork = nil
         updateEngines(stopping: false)
@@ -699,7 +707,7 @@ final class AudioRouter {
         for kind in Engine.allCases where !switching.contains(kind) {
             guard let engine = audioEngine(kind) else { continue }
             let wanted = isWanted(kind)
-            if wanted == isLive(kind) || (!wanted && !stopping) { continue }
+            if wanted == isLive(kind) || (!wanted && !stopping) || (wanted && failed.contains(kind)) { continue }
             switching.insert(kind)
             if !wanted {
                 setLive(kind, false) // before stopping, so the stop isn't taken for a failure
@@ -736,6 +744,7 @@ final class AudioRouter {
         }
         if let failure {
             NSLog("Soundboard: %@ didn't start: %@", "\(kind)", failure)
+            failed.insert(kind)
             if kind == .mic {
                 status.micProblem = "\(status.mic ?? "Input"): \(failure)"
                 status.mic = nil
@@ -753,6 +762,7 @@ final class AudioRouter {
     func teardown() {
         stopAll()
         pending.removeAll()
+        failed.removeAll()
         observers.forEach(NotificationCenter.default.removeObserver)
         observers.removeAll()
         let engines = [mic?.engine, broadcast?.engine, monitor?.engine]
