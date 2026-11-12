@@ -144,6 +144,11 @@ sandbox container: `Paths.home` uses `getpwuid`, and the entitlements grant a
   stop while a sound plays. Noise removal is bypassed while the mic is paused. Live flags
   (`status.micLive` …) are only set once `start()` succeeded, and cleared before `stop()`, so
   `needsRebuild` treats "stopped" as a failure only while an engine is meant to run.
+- **A failed `engine.start()` is not retried on its own.** `switched` records it in `failed`; a rebuild or new
+  demand (a key press, a listener) clears it. Without that, `updateEngines` retried in a tight loop while the engine was wanted.
+- **Device changes only rebuild when they matter.** A rebuild stops every sound and drops the input for a moment, so
+  `deviceChangeNeedsRebuild` compares the devices the setup picked with what it would pick now, and rebuilds
+  only if they differ or something isn't working. Headphones connecting mid-call no longer interrupt it.
 - **`AudioListeners`** uses the macOS 14 process objects (`kAudioHardwarePropertyProcessObjectList`,
   then per process `IsRunningInput` + input-scope `Devices`), with property listeners, no polling;
   it works from the sandbox. Verified with Zoom: Test Mic shows `us.zoom.xos` reading BlackHole
@@ -198,6 +203,8 @@ page back/forward), and a 248×58 info screen.
   `SOUNDBOARD_DEBUG=1` logs the average screen write time. Measured on the Neo (USB high
   speed): ~5 KB per frame, a 2 ms write, and about +0.3% of a core over the ~7% the audio
   engines use, so 20 fps leaves plenty of room.
+- **A held Bleep is released by key position, not by page** (`censorIndex`), and also when the deck disconnects or
+  the shortcuts are re-registered. Matching the release against the current page left it stuck on after a page turn.
 - **Without a deck**, `Palette` mirrors the current page (`keyLayout` falls back to the Neo's
   4×2) and calls the same `AppController.press(index:pressed:)` / `turnPage(by:)` as the deck.
   `CornerTrigger` uses `NSEvent` mouse-moved monitors (global + local); mouse monitors need no
@@ -226,7 +233,7 @@ arguments** (verified), so it's file-based, in `downloads/`:
 | File | Written by | Purpose |
 | --- | --- | --- |
 | `<job>.request.json` | app | The request. The helper claims it by renaming it to `.claimed`. |
-| `<job>.json` | helper | Status: `downloading` (progress, message), `done` (file, title), `choices` (list), `info`, `playing` / `loading` / `ended` (preview), `error` (message). |
+| `<job>.json` | helper | Written as soon as the request is claimed (the app's 20 s "didn't start" check waits for it). Status: `downloading` (progress, message), `done` (file, title), `choices` (list), `info`, `playing` / `loading` / `ended` (preview), `error` (message). |
 | `<job>.cancel` | app | Stop the job. |
 | `<job>.seek` | app | Seek a preview to this many seconds. |
 
