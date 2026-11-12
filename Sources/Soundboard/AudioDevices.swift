@@ -1,7 +1,7 @@
 import CoreAudio
 import Foundation
 
-struct AudioDevice {
+struct AudioDevice: Equatable {
     let id: AudioDeviceID
     let name: String
     let inputChannels: Int

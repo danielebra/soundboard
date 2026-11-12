@@ -78,7 +78,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate, Stre
             self.redrawScreen()
             self.publishStatus()
         }
-        AudioDevices.observeChanges { [weak self] in self?.scheduleRebuild() }
+        AudioDevices.observeChanges { [weak self] in
+            guard let self, self.router.deviceChangeNeedsRebuild() else { return }
+            self.scheduleRebuild()
+        }
         sync.onChange = { [weak self] in self?.publishStatus() }
 
         reloadConfig()

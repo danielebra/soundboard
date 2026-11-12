@@ -406,6 +406,9 @@ final class AudioRouter {
     /// For noise removal, which is bypassed while the input is paused.
     private var settings = Config()
 
+    /// The devices the current setup picked, as they were then.
+    private var picked: (mic: AudioDevice?, monitor: AudioDevice?, output: AudioDevice?)
+
     private struct Built {
         var broadcast: OutputBus?
         var monitor: OutputBus?
@@ -416,7 +419,10 @@ final class AudioRouter {
         var monitorTone: AVAudioSourceNode?
         var previewPlayer: AVAudioPlayerNode?
         var soundPreview: AVAudioPlayerNode?
-        var outputDevice: AudioDeviceID?
+        /// The devices this stage picked (whether or not they opened), for `deviceChangeNeedsRebuild`.
+        var micDevice: AudioDevice?
+        var monitorDevice: AudioDevice?
+        var outputDevice: AudioDevice?
         var status = Status()
         /// Built by `buildBroadcast` (virtual device) rather than `buildLocal` (mic, headphones).
         var isBroadcastStage = false
@@ -488,8 +494,11 @@ final class AudioRouter {
             status.connecting = nil
             status.output = built.status.output
             status.outputProblem = built.status.outputProblem
-            listeners.watch(built.outputDevice)
+            listeners.watch(built.outputDevice?.id)
+            picked.output = built.outputDevice
         } else {
+            picked.mic = built.micDevice
+            picked.monitor = built.monitorDevice
             mic = built.mic
             monitor = built.monitor
             monitorTone = built.monitorTone
@@ -525,8 +534,8 @@ final class AudioRouter {
 
         // Microphone (optional).
         if config.micPassthrough {
-            let device = config.micDevice.flatMap { AudioDevices.find($0, output: false) }
-                ?? (config.micDevice == nil ? AudioDevices.defaultDevice(output: false) : nil)
+            let device = inputDevice(config)
+            built.micDevice = device
             if !micAllowed {
                 built.status.micProblem = "Microphone access not granted"
             } else if let device {
@@ -549,8 +558,8 @@ final class AudioRouter {
 
         // What you hear.
         if config.monitor {
-            let device = config.monitorDevice.flatMap { AudioDevices.find($0, output: true) }
-                ?? (config.monitorDevice == nil ? AudioDevices.defaultDevice(output: true) : nil)
+            let device = monitorDevice(config)
+            built.monitorDevice = device
             let output = AudioDevices.find(config.outputDevice, output: true)
             if let device, device.id != output?.id {
                 do {
@@ -584,7 +593,7 @@ final class AudioRouter {
             built.status.outputProblem = "“\(config.outputDevice)” not found. Is BlackHole installed?"
             return built
         }
-        built.outputDevice = device.id
+        built.outputDevice = device
         do {
             let bus = try OutputBus(device: device.id, voiceCount: voiceCount)
             bus.effects.outputVolume = config.soundVolume
@@ -633,6 +642,30 @@ final class AudioRouter {
             built.broadcastTone = nil
         }
         return built
+    }
+
+    /// The input the config asks for: the named device, or the system default.
+    private static func inputDevice(_ config: Config) -> AudioDevice? {
+        config.micDevice.flatMap { AudioDevices.find($0, output: false) }
+            ?? (config.micDevice == nil ? AudioDevices.defaultDevice(output: false) : nil)
+    }
+
+    private static func monitorDevice(_ config: Config) -> AudioDevice? {
+        config.monitorDevice.flatMap { AudioDevices.find($0, output: true) }
+            ?? (config.monitorDevice == nil ? AudioDevices.defaultDevice(output: true) : nil)
+    }
+
+    /// Whether a change to the Mac's audio devices matters here. A rebuild stops every sound and
+    /// drops the input for a moment, so headphones connecting or a camera being plugged in during
+    /// a call shouldn't cause one unless a device in use changed (or the default it follows did).
+    /// Anything that isn't working rebuilds as before: the new device may be the missing one.
+    func deviceChangeNeedsRebuild() -> Bool {
+        if status.connecting != nil || status.outputProblem != nil || status.micProblem != nil { return true }
+        if settings.monitor, monitor == nil, picked.monitor != picked.output { return true } // didn't open
+        let now = (mic: settings.micPassthrough ? Self.inputDevice(settings) : nil,
+                   monitor: settings.monitor ? Self.monitorDevice(settings) : nil,
+                   output: AudioDevices.find(settings.outputDevice, output: true))
+        return now != picked
     }
 
     private func needsRebuild(_ engine: AVAudioEngine) -> Bool {
